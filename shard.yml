@@ -1,0 +1,13 @@
+name: shards-audit
+version: 0.1.0
+
+authors:
+  - hahwul <hahwul@gmail.com>
+
+targets:
+  shards-audit:
+    main: src/shards-audit.cr
+
+crystal: '>= 1.19.1'
+
+license: MIT
