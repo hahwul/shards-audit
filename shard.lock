@@ -1,0 +1,6 @@
+version: 2.0
+shards:
+  sarif:
+    git: https://github.com/hahwul/sarif.cr.git
+    version: 0.1.0+git.commit.e48f889c7850a5f0065217580aa98c64956358cb
+

@@ -1,0 +1,11 @@
+version: 2.0
+shards:
+  ameba:
+    git: https://github.com/crystal-ameba/ameba.git
+    version: 1.5.0
+    commit: abc1234def5678
+
+  lucky:
+    git: https://github.com/luckyframework/lucky.git
+    commit: deadbeef12345678
+

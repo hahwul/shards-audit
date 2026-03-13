@@ -1,0 +1,224 @@
+require "../../spec_helper"
+
+describe Shards::Audit::Semver do
+  describe ".parse" do
+    it "parses standard version" do
+      v = Shards::Audit::Semver.parse("1.2.3")
+      v.should_not be_nil
+      v = v.not_nil!
+      v.major.should eq(1)
+      v.minor.should eq(2)
+      v.patch.should eq(3)
+      v.prerelease.should be_nil
+    end
+
+    it "parses version with v prefix" do
+      v = Shards::Audit::Semver.parse("v0.1.0")
+      v.should_not be_nil
+      v = v.not_nil!
+      v.major.should eq(0)
+      v.minor.should eq(1)
+      v.patch.should eq(0)
+    end
+
+    it "parses version with prerelease" do
+      v = Shards::Audit::Semver.parse("1.0.0-rc1")
+      v.should_not be_nil
+      v = v.not_nil!
+      v.major.should eq(1)
+      v.minor.should eq(0)
+      v.patch.should eq(0)
+      v.prerelease.should eq("rc1")
+    end
+
+    it "parses major.minor only" do
+      v = Shards::Audit::Semver.parse("1.2")
+      v.should_not be_nil
+      v = v.not_nil!
+      v.major.should eq(1)
+      v.minor.should eq(2)
+      v.patch.should eq(0)
+    end
+
+    it "parses major only" do
+      v = Shards::Audit::Semver.parse("3")
+      v.should_not be_nil
+      v = v.not_nil!
+      v.major.should eq(3)
+      v.minor.should eq(0)
+      v.patch.should eq(0)
+    end
+
+    it "returns nil for empty string" do
+      Shards::Audit::Semver.parse("").should be_nil
+    end
+
+    it "returns nil for non-numeric" do
+      Shards::Audit::Semver.parse("abc").should be_nil
+    end
+
+    it "returns nil for too many parts" do
+      Shards::Audit::Semver.parse("1.2.3.4").should be_nil
+    end
+  end
+
+  describe "<=>" do
+    it "compares major versions" do
+      v1 = Shards::Audit::Semver.parse("2.0.0").not_nil!
+      v2 = Shards::Audit::Semver.parse("1.0.0").not_nil!
+      (v1 > v2).should be_true
+    end
+
+    it "compares minor versions" do
+      v1 = Shards::Audit::Semver.parse("1.2.0").not_nil!
+      v2 = Shards::Audit::Semver.parse("1.1.0").not_nil!
+      (v1 > v2).should be_true
+    end
+
+    it "compares patch versions" do
+      v1 = Shards::Audit::Semver.parse("1.0.2").not_nil!
+      v2 = Shards::Audit::Semver.parse("1.0.1").not_nil!
+      (v1 > v2).should be_true
+    end
+
+    it "treats equal versions as equal" do
+      v1 = Shards::Audit::Semver.parse("1.2.3").not_nil!
+      v2 = Shards::Audit::Semver.parse("1.2.3").not_nil!
+      (v1 == v2).should be_true
+    end
+
+    it "release > prerelease for same version" do
+      release = Shards::Audit::Semver.parse("1.0.0").not_nil!
+      pre = Shards::Audit::Semver.parse("1.0.0-rc1").not_nil!
+      (release > pre).should be_true
+    end
+
+    it "compares prerelease strings lexically" do
+      alpha = Shards::Audit::Semver.parse("1.0.0-alpha").not_nil!
+      beta = Shards::Audit::Semver.parse("1.0.0-beta").not_nil!
+      (beta > alpha).should be_true
+    end
+  end
+end
+
+describe Shards::Audit::SemverRange do
+  describe "#includes?" do
+    it "includes version in range" do
+      range = Shards::Audit::SemverRange.new(
+        introduced: Shards::Audit::Semver.new(1, 0, 0),
+        fixed: Shards::Audit::Semver.new(2, 0, 0)
+      )
+      v = Shards::Audit::Semver.parse("1.5.0").not_nil!
+      range.includes?(v).should be_true
+    end
+
+    it "excludes version below range" do
+      range = Shards::Audit::SemverRange.new(
+        introduced: Shards::Audit::Semver.new(1, 0, 0),
+        fixed: Shards::Audit::Semver.new(2, 0, 0)
+      )
+      v = Shards::Audit::Semver.parse("0.9.0").not_nil!
+      range.includes?(v).should be_false
+    end
+
+    it "excludes version at or above fixed" do
+      range = Shards::Audit::SemverRange.new(
+        introduced: Shards::Audit::Semver.new(1, 0, 0),
+        fixed: Shards::Audit::Semver.new(2, 0, 0)
+      )
+      v = Shards::Audit::Semver.parse("2.0.0").not_nil!
+      range.includes?(v).should be_false
+    end
+
+    it "includes introduced boundary" do
+      range = Shards::Audit::SemverRange.new(
+        introduced: Shards::Audit::Semver.new(1, 0, 0),
+        fixed: Shards::Audit::Semver.new(2, 0, 0)
+      )
+      v = Shards::Audit::Semver.parse("1.0.0").not_nil!
+      range.includes?(v).should be_true
+    end
+
+    it "handles nil introduced (from 0.0.0)" do
+      range = Shards::Audit::SemverRange.new(
+        introduced: nil,
+        fixed: Shards::Audit::Semver.new(1, 5, 0)
+      )
+      v = Shards::Audit::Semver.parse("1.0.0").not_nil!
+      range.includes?(v).should be_true
+    end
+
+    it "handles nil fixed (no patch yet)" do
+      range = Shards::Audit::SemverRange.new(
+        introduced: Shards::Audit::Semver.new(1, 0, 0),
+        fixed: nil
+      )
+      v = Shards::Audit::Semver.parse("99.0.0").not_nil!
+      range.includes?(v).should be_true
+    end
+  end
+end
+
+describe Shards::Audit::SemverRangeParser do
+  describe ".parse_osv_events" do
+    it "parses introduced/fixed pair" do
+      events = JSON.parse(%([{"introduced":"0"}, {"fixed":"1.2.3"}])).as_a
+      ranges = Shards::Audit::SemverRangeParser.parse_osv_events(events)
+      ranges.size.should eq(1)
+      ranges[0].introduced.should_not be_nil
+      ranges[0].fixed.should_not be_nil
+      ranges[0].fixed.not_nil!.major.should eq(1)
+      ranges[0].fixed.not_nil!.minor.should eq(2)
+      ranges[0].fixed.not_nil!.patch.should eq(3)
+    end
+
+    it "parses introduced with no fix" do
+      events = JSON.parse(%([{"introduced":"1.0.0"}])).as_a
+      ranges = Shards::Audit::SemverRangeParser.parse_osv_events(events)
+      ranges.size.should eq(1)
+      ranges[0].introduced.should_not be_nil
+      ranges[0].fixed.should be_nil
+    end
+
+    it "parses multiple ranges" do
+      events = JSON.parse(%([
+        {"introduced":"0"},
+        {"fixed":"1.0.0"},
+        {"introduced":"2.0.0"},
+        {"fixed":"2.1.0"}
+      ])).as_a
+      ranges = Shards::Audit::SemverRangeParser.parse_osv_events(events)
+      ranges.size.should eq(2)
+    end
+  end
+
+  describe ".parse_github_range" do
+    it "parses >= and < range" do
+      ranges = Shards::Audit::SemverRangeParser.parse_github_range(">= 1.0.0, < 2.0.0")
+      ranges.size.should eq(1)
+      ranges[0].introduced.not_nil!.major.should eq(1)
+      ranges[0].fixed.not_nil!.major.should eq(2)
+    end
+
+    it "parses >= only (no upper bound)" do
+      ranges = Shards::Audit::SemverRangeParser.parse_github_range(">= 1.0.0")
+      ranges.size.should eq(1)
+      ranges[0].introduced.not_nil!.major.should eq(1)
+      ranges[0].fixed.should be_nil
+    end
+
+    it "returns empty for empty string" do
+      ranges = Shards::Audit::SemverRangeParser.parse_github_range("")
+      ranges.should be_empty
+    end
+
+    it "parses = exact version" do
+      ranges = Shards::Audit::SemverRangeParser.parse_github_range("= 1.5.0")
+      ranges.size.should eq(1)
+      v = Shards::Audit::Semver.parse("1.5.0").not_nil!
+      ranges[0].includes?(v).should be_true
+      v2 = Shards::Audit::Semver.parse("1.5.1").not_nil!
+      ranges[0].includes?(v2).should be_false
+    end
+  end
+end

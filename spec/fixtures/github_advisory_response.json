@@ -1,0 +1,26 @@
+[
+  {
+    "ghsa_id": "GHSA-aaaa-bbbb-cccc",
+    "cve_id": "CVE-2024-99999",
+    "summary": "GitHub Advisory test vulnerability",
+    "description": "A test vulnerability from GitHub Advisory Database",
+    "severity": "high",
+    "cvss": {
+      "score": 7.5,
+      "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+    },
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "kemal"
+        },
+        "vulnerable_version_range": "< 1.2.0",
+        "first_patched_version": {
+          "identifier": "1.2.0"
+        }
+      }
+    ],
+    "html_url": "https://github.com/advisories/GHSA-aaaa-bbbb-cccc"
+  }
+]

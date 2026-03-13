@@ -6,7 +6,11 @@ authors:
 
 targets:
   shards-audit:
-    main: src/shards-audit.cr
+    main: src/run.cr
+
+dependencies:
+  sarif:
+    github: hahwul/sarif.cr
 
 crystal: '>= 1.19.1'
 

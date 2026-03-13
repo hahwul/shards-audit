@@ -1,6 +1,25 @@
-# TODO: Write documentation for `Shards::Audit`
-module Shards::Audit
-  VERSION = "0.1.0"
-
-  # TODO: Put your code here
-end
+require "./shards/audit/version"
+require "./shards/audit/semver"
+require "./shards/audit/config"
+require "./shards/audit/config_file"
+require "./shards/audit/cache"
+require "./shards/audit/lockfile/dependency"
+require "./shards/audit/lockfile/parser"
+require "./shards/audit/advisory/severity"
+require "./shards/audit/advisory/vulnerability"
+require "./shards/audit/http_retry"
+require "./shards/audit/http_client"
+require "./shards/audit/advisory/source"
+require "./shards/audit/advisory/cvss_parser"
+require "./shards/audit/advisory/osv_parser"
+require "./shards/audit/advisory/osv_query_builder"
+require "./shards/audit/advisory/github_parser"
+require "./shards/audit/advisory/osv_client"
+require "./shards/audit/advisory/github_client"
+require "./shards/audit/advisory/vulnerability_filter"
+require "./shards/audit/advisory/scanner"
+require "./shards/audit/report/table_formatter"
+require "./shards/audit/report/json_formatter"
+require "./shards/audit/report/sarif_formatter"
+require "./shards/audit/cli"
+require "./shards/audit/cli_runner"
