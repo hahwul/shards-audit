@@ -54,7 +54,11 @@ module Shards::Audit
           reason = entry["reason"]?.try(&.as_s?)
           expires = nil
           if exp_str = entry["expires"]?.try(&.as_s?)
-            expires = Time.parse(exp_str, "%Y-%m-%d", Time::Location::UTC) rescue nil
+            begin
+              expires = Time.parse(exp_str, "%Y-%m-%d", Time::Location::UTC)
+            rescue
+              Shards::Audit.stderr.puts "Warning: Invalid expires date '#{exp_str}' for ignore entry #{id}, ignoring expiry"
+            end
           end
           ignore << IgnoreEntry.new(id: id, reason: reason, expires: expires)
         end
