@@ -2,7 +2,7 @@ require "json"
 
 module Shards::Audit
   module OsvQueryBuilder
-    private def build_osv_query(dep : Dependency, package_url : String) : String
+    private def build_osv_query(dep : Dependency, package_url : String) : String?
       JSON.build do |json|
         json.object do
           if commit = dep.commit
@@ -16,7 +16,8 @@ module Shards::Audit
             end
             json.field "version", version
           else
-            json.field "commit", ""
+            # No commit or version available — skip this query
+            return nil
           end
         end
       end

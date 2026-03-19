@@ -4,23 +4,15 @@ module Shards::Audit
   module OsvParser
     include CvssParser
 
-    private def extract_vuln_ids(body : String, dependencies : Array(Dependency), secondary_deps : Array(Dependency) = [] of Dependency) : Hash(String, Array(String))
+    private def extract_vuln_ids_mapped(body : String, query_deps : Array(Dependency)) : Hash(String, Array(String))
       vuln_ids_by_dep = Hash(String, Array(String)).new { |h, k| h[k] = [] of String }
       data = JSON.parse(body)
 
       results = data["results"]?.try(&.as_a) || return vuln_ids_by_dep
-      primary_count = dependencies.size
 
       results.each_with_index do |entry, idx|
-        # Map index back to dependency (primary: 0..n-1, secondary: n..n+secondary_count-1)
-        dep = if idx < primary_count
-                dependencies[idx]
-              else
-                sec_idx = idx - primary_count
-                next if sec_idx >= secondary_deps.size
-                secondary_deps[sec_idx]
-              end
-
+        next if idx >= query_deps.size
+        dep = query_deps[idx]
         vulns = entry["vulns"]?.try(&.as_a) || next
 
         vulns.each do |vuln|
