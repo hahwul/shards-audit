@@ -13,7 +13,7 @@ module Shards::Audit
           delay = Math.min(base_delay * (2 ** (retries - 1)), MAX_RETRY_DELAY)
           jitter = delay * 0.1 * Random.rand
           actual_delay = delay + jitter
-          STDERR.puts("[Retry] Attempt #{retries}/#{max_retries} after #{actual_delay.round(2)}s: #{ex.message}") if @verbose
+          Shards::Audit.stderr.puts("[Retry] Attempt #{retries}/#{max_retries} after #{actual_delay.round(2)}s: #{ex.message}") if @verbose
           sleep(actual_delay.seconds)
         end
       end

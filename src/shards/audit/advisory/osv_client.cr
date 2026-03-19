@@ -149,7 +149,7 @@ module Shards::Audit
     end
 
     private def log(message : String)
-      STDERR.puts("[OSV] #{message}") if @verbose
+      Shards::Audit.stderr.puts("[OSV] #{message}") if @verbose
     end
   end
 end

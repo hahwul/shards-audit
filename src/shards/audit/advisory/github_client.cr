@@ -101,7 +101,7 @@ module Shards::Audit
     end
 
     private def log(message : String)
-      STDERR.puts("[GitHub] #{sanitize_log(message)}") if @verbose
+      Shards::Audit.stderr.puts("[GitHub] #{sanitize_log(message)}") if @verbose
     end
 
     private def sanitize_log(message : String) : String

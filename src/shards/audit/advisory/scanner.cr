@@ -96,7 +96,7 @@ module Shards::Audit
     end
 
     private def log(message : String)
-      STDERR.puts("[Scanner] #{message}") if @config.verbose
+      Shards::Audit.stderr.puts("[Scanner] #{message}") if @config.verbose
     end
   end
 end
