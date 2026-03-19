@@ -68,11 +68,11 @@ module Shards::Audit
       # Format output
       case config.format
       when OutputFormat::Table
-        TableFormatter.new(no_color: config.no_color).format(result)
+        TableFormatter.new(no_color: config.no_color).format(result, @@stdout)
       when OutputFormat::Json
-        JsonFormatter.new.format(result)
+        JsonFormatter.new.format(result, @@stdout)
       when OutputFormat::Sarif
-        SarifFormatter.new.format(result)
+        SarifFormatter.new.format(result, @@stdout)
       end
 
       return EXIT_CLEAN if config.exit_zero
