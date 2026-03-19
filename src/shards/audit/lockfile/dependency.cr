@@ -6,14 +6,12 @@ module Shards::Audit
     getter git_url : String
     getter version : String?
     getter commit : String?
+    getter github_owner_repo : String?
 
     def initialize(@name, @git_url, @version = nil, @commit = nil)
-    end
-
-    def github_owner_repo : String?
-      if match = GITHUB_URL_PATTERN.match(git_url)
-        "#{match[1]}/#{match[2]}"
-      end
+      @github_owner_repo = if match = GITHUB_URL_PATTERN.match(@git_url)
+                              "#{match[1]}/#{match[2]}"
+                            end
     end
 
     def github? : Bool
