@@ -2,6 +2,8 @@ module Shards::Audit
   enum OutputFormat
     Table
     Json
+    Yaml
+    Toml
     Sarif
   end
 

@@ -28,13 +28,15 @@ module Shards::Audit
           config.lockfile_path = path
         end
 
-        opts.on("-f FORMAT", "--format FORMAT", "Output format: table, json, sarif (default: table)") do |format|
+        opts.on("-f FORMAT", "--format FORMAT", "Output format: table, json, yaml, toml, sarif (default: table)") do |format|
           case format.downcase
           when "table" then config.format = OutputFormat::Table
           when "json"  then config.format = OutputFormat::Json
-          when "sarif"  then config.format = OutputFormat::Sarif
+          when "yaml", "yml" then config.format = OutputFormat::Yaml
+          when "toml"  then config.format = OutputFormat::Toml
+          when "sarif" then config.format = OutputFormat::Sarif
           else
-            raise ArgumentError.new("Unknown format: #{format}. Use 'table', 'json', or 'sarif'.")
+            raise ArgumentError.new("Unknown format: #{format}. Use 'table', 'json', 'yaml', 'toml', or 'sarif'.")
           end
         end
 

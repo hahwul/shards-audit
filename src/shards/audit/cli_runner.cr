@@ -71,6 +71,10 @@ module Shards::Audit
         TableFormatter.new(no_color: config.no_color).format(result, @@stdout)
       when OutputFormat::Json
         JsonFormatter.new.format(result, @@stdout)
+      when OutputFormat::Yaml
+        YamlFormatter.new.format(result, @@stdout)
+      when OutputFormat::Toml
+        TomlFormatter.new.format(result, @@stdout)
       when OutputFormat::Sarif
         SarifFormatter.new.format(result, @@stdout)
       else

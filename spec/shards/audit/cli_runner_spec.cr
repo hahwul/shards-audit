@@ -50,6 +50,36 @@ describe "CLI Runner integration" do
       parsed["dependencies_scanned"].as_i.should eq(3)
       parsed["vulnerabilities"].as_a.should be_a(Array(JSON::Any))
     end
+
+    it "outputs valid YAML with --format yaml" do
+      _, stdout, _ = run_cli_capture([
+        "--path", File.join(FIXTURES_PATH, "shard.lock.basic"),
+        "--format", "yaml",
+        "--no-cache",
+      ])
+      parsed = YAML.parse(stdout)
+      parsed["tool_version"].as_s.should eq(Shards::Audit::VERSION)
+      parsed["dependencies_scanned"].as_i.should eq(3)
+    end
+
+    it "accepts yml as alias for yaml" do
+      exit_code, _, _ = run_cli_capture([
+        "--path", File.join(FIXTURES_PATH, "shard.lock.basic"),
+        "--format", "yml",
+        "--no-cache",
+      ])
+      exit_code.should eq(Shards::Audit::CLI::EXIT_CLEAN)
+    end
+
+    it "outputs TOML with --format toml" do
+      _, stdout, _ = run_cli_capture([
+        "--path", File.join(FIXTURES_PATH, "shard.lock.basic"),
+        "--format", "toml",
+        "--no-cache",
+      ])
+      stdout.should contain("tool_version = \"#{Shards::Audit::VERSION}\"")
+      stdout.should contain("dependencies_scanned = 3")
+    end
   end
 
   describe "--no-config" do
