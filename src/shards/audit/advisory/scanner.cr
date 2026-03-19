@@ -92,15 +92,7 @@ module Shards::Audit
       end
 
       # Sort by severity (critical first)
-      unique.sort_by do |v|
-        case v.severity
-        when Severity::Critical then 0
-        when Severity::High     then 1
-        when Severity::Medium   then 2
-        when Severity::Low      then 3
-        else                         4
-        end
-      end
+      unique.sort_by { |v| -v.severity.priority }
     end
 
     private def log(message : String)
