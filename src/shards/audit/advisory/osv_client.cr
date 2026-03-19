@@ -15,14 +15,11 @@ module Shards::Audit
 
     def query_batch(dependencies : Array(Dependency)) : Hash(String, Array(String))
       # Build primary queries (git URL based) + secondary queries (normalized GitHub URL)
+      # Only add a secondary query when it differs from the primary (i.e. dep has a GitHub owner/repo)
       queries = dependencies.map { |dep| build_osv_query(dep, normalize_git_url(dep.git_url)) }
-      queries += dependencies.map { |dep|
-        github_url = if owner_repo = dep.github_owner_repo
-                       "https://github.com/#{owner_repo}"
-                     else
-                       normalize_git_url(dep.git_url)
-                     end
-        build_osv_query(dep, github_url)
+      secondary_deps = dependencies.select(&.github_owner_repo)
+      queries += secondary_deps.map { |dep|
+        build_osv_query(dep, "https://github.com/#{dep.github_owner_repo}")
       }
 
       body = JSON.build do |json|
@@ -40,7 +37,7 @@ module Shards::Audit
       log("OSV batch query for #{dependencies.size} dependencies (#{queries.size} queries)")
 
       response = make_request("POST", "/v1/querybatch", body)
-      extract_vuln_ids(response, dependencies)
+      extract_vuln_ids(response, dependencies, secondary_deps)
     end
 
     def fetch_vulnerability(vuln_id : String) : Vulnerability?
