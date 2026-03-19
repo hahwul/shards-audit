@@ -73,6 +73,8 @@ module Shards::Audit
         JsonFormatter.new.format(result, @@stdout)
       when OutputFormat::Sarif
         SarifFormatter.new.format(result, @@stdout)
+      else
+        TableFormatter.new(no_color: config.no_color).format(result, @@stdout)
       end
 
       return EXIT_CLEAN if config.exit_zero
