@@ -135,8 +135,8 @@ module Shards::Audit
         when ">="
           introduced = ver
         when ">"
-          # > X.Y.Z means introduced at next version; approximate with same value
-          introduced = ver
+          # > X.Y.Z means introduced at next version; approximate with next patch
+          introduced = Semver.new(ver.major, ver.minor, ver.patch + 1)
         when "<"
           fixed = ver
         when "<="
