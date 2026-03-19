@@ -12,19 +12,34 @@ module Shards::Audit
     def initialize(@token : String? = nil, @timeout : Int32 = 30, @verbose : Bool = false, @cache : Cache? = nil)
     end
 
+    MAX_CONCURRENCY = 5
+
     def scan(dependencies : Array(Dependency)) : Array(Vulnerability)
       github_deps = dependencies.select(&.github?)
       return [] of Vulnerability if github_deps.empty?
 
       vulnerabilities = [] of Vulnerability
+      channel = Channel(Array(Vulnerability)).new(MAX_CONCURRENCY)
 
-      github_deps.each do |dep|
-        next unless owner_repo = dep.github_owner_repo
-        begin
-          vulns = query_advisories(owner_repo, dep.name)
-          vulnerabilities.concat(vulns)
-        rescue ex : IO::Error | Socket::ConnectError | JSON::ParseException
-          log("Failed to query advisories for #{owner_repo}: #{ex.message}")
+      github_deps.each_slice(MAX_CONCURRENCY) do |batch|
+        batch.each do |dep|
+          spawn do
+            vulns = if owner_repo = dep.github_owner_repo
+                      begin
+                        query_advisories(owner_repo, dep.name)
+                      rescue ex : IO::Error | Socket::ConnectError | JSON::ParseException
+                        log("Failed to query advisories for #{owner_repo}: #{ex.message}")
+                        [] of Vulnerability
+                      end
+                    else
+                      [] of Vulnerability
+                    end
+            channel.send(vulns)
+          end
+        end
+
+        batch.size.times do
+          vulnerabilities.concat(channel.receive)
         end
       end
 
