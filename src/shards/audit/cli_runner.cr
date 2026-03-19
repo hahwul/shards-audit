@@ -75,6 +75,7 @@ module Shards::Audit
         SarifFormatter.new.format(result)
       end
 
+      return EXIT_CLEAN if config.exit_zero
       result.clean? ? EXIT_CLEAN : EXIT_VULNS
     end
   end

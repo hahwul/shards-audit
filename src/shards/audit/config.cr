@@ -17,6 +17,7 @@ module Shards::Audit
     property no_cache : Bool
     property ignore_ids : Array(String)
     property severity_threshold : Severity?
+    property exit_zero : Bool
 
     def initialize(
       @lockfile_path = "./shard.lock",
@@ -29,7 +30,8 @@ module Shards::Audit
       @cache_ttl = 86400,
       @no_cache = false,
       @ignore_ids = [] of String,
-      @severity_threshold = nil
+      @severity_threshold = nil,
+      @exit_zero = false
     )
     end
   end

@@ -90,6 +90,10 @@ module Shards::Audit
           config.severity_threshold = threshold
         end
 
+        opts.on("--exit-zero", "Always exit with 0 even if vulnerabilities are found") do
+          config.exit_zero = true
+        end
+
         opts.on("--version", "Show version") do
           show_version = true
         end
