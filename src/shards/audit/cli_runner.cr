@@ -52,8 +52,8 @@ module Shards::Audit
       scanner = Scanner.new(config)
       result = scanner.scan(dependencies)
 
-      # Check if both sources failed
-      if result.errors.size >= 2 && result.vulnerabilities.empty?
+      # Check if all sources failed
+      if result.errors.size >= Scanner::SOURCE_COUNT && result.vulnerabilities.empty?
         @@stderr.puts "Error: All vulnerability sources failed."
         result.errors.each { |e| @@stderr.puts "  - #{e}" }
         @@stderr.puts
@@ -67,18 +67,16 @@ module Shards::Audit
 
       # Format output
       case config.format
-      when OutputFormat::Table
+      in OutputFormat::Table
         TableFormatter.new(no_color: config.no_color).format(result, @@stdout)
-      when OutputFormat::Json
+      in OutputFormat::Json
         JsonFormatter.new.format(result, @@stdout)
-      when OutputFormat::Yaml
+      in OutputFormat::Yaml
         YamlFormatter.new.format(result, @@stdout)
-      when OutputFormat::Toml
+      in OutputFormat::Toml
         TomlFormatter.new.format(result, @@stdout)
-      when OutputFormat::Sarif
+      in OutputFormat::Sarif
         SarifFormatter.new.format(result, @@stdout)
-      else
-        TableFormatter.new(no_color: config.no_color).format(result, @@stdout)
       end
 
       return EXIT_CLEAN if config.exit_zero

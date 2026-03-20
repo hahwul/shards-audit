@@ -1,5 +1,7 @@
 module Shards::Audit
   class Scanner
+    SOURCE_COUNT = 2
+
     def initialize(@config : Config)
       @dep_map = Hash(String, Dependency).new
     end
