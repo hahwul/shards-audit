@@ -46,7 +46,13 @@ module Shards::Audit
         return EXIT_CLEAN
       end
 
-      @@stderr.puts "Scanning #{dependencies.size} dependencies..." if config.verbose
+      if config.verbose
+        skipped = LockfileParser.skipped_deps
+        unless skipped.empty?
+          @@stderr.puts "Skipped #{skipped.size} non-git dependencies: #{skipped.join(", ")}"
+        end
+        @@stderr.puts "Scanning #{dependencies.size} dependencies..."
+      end
 
       # Run scan
       scanner = Scanner.new(config)

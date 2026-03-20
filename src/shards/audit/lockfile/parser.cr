@@ -6,6 +6,8 @@ module Shards::Audit
 
     MAX_LOCKFILE_SIZE = 5 * 1024 * 1024 # 5MB
 
+    class_getter skipped_deps = [] of String
+
     def self.parse(path : String) : Array(Dependency)
       unless File.exists?(path)
         raise ParseError.new("Lockfile not found: #{path}")
@@ -29,13 +31,17 @@ module Shards::Audit
 
       shards = data["shards"]
       dependencies = [] of Dependency
+      @@skipped_deps = [] of String
 
       shards.as_h.each do |name, info|
         dep_name = name.as_s
         next if dep_name.empty?
 
         git_url = info["git"]?.try(&.as_s)
-        next unless git_url
+        unless git_url
+          @@skipped_deps << dep_name
+          next
+        end
 
         version = info["version"]?.try(&.as_s)
         commit = info["commit"]?.try(&.as_s)
