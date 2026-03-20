@@ -70,16 +70,26 @@ module Shards::Audit
   struct SemverRange
     getter introduced : Semver?
     getter fixed : Semver?
+    getter introduced_exclusive : Bool
+    getter fixed_inclusive : Bool
 
-    def initialize(@introduced = nil, @fixed = nil)
+    def initialize(@introduced = nil, @fixed = nil, @introduced_exclusive = false, @fixed_inclusive = false)
     end
 
     def includes?(version : Semver) : Bool
       if intro = introduced
-        return false if version < intro
+        if introduced_exclusive
+          return false if version <= intro
+        else
+          return false if version < intro
+        end
       end
       if fix = fixed
-        return false if version >= fix
+        if fixed_inclusive
+          return false if version > fix
+        else
+          return false if version >= fix
+        end
       end
       true
     end
@@ -123,6 +133,9 @@ module Shards::Audit
       introduced : Semver? = nil
       fixed : Semver? = nil
 
+      introduced_exclusive = false
+      fixed_inclusive = false
+
       constraints.each do |constraint|
         parts = constraint.split(/\s+/, 2)
         next if parts.size != 2
@@ -135,22 +148,24 @@ module Shards::Audit
         when ">="
           introduced = ver
         when ">"
-          # > X.Y.Z means introduced at next version; approximate with next patch
-          introduced = Semver.new(ver.major, ver.minor, ver.patch + 1)
+          introduced = ver
+          introduced_exclusive = true
         when "<"
           fixed = ver
         when "<="
-          # <= X.Y.Z means fixed is one above; approximate with next patch
-          fixed = Semver.new(ver.major, ver.minor, ver.patch + 1)
+          fixed = ver
+          fixed_inclusive = true
         when "="
           introduced = ver
-          fixed = Semver.new(ver.major, ver.minor, ver.patch + 1)
+          fixed = ver
+          fixed_inclusive = true
         end
       end
 
       # If we only got a lower bound, it means still vulnerable
       return [] of SemverRange unless introduced || fixed
-      [SemverRange.new(introduced: introduced, fixed: fixed)]
+      [SemverRange.new(introduced: introduced, fixed: fixed,
+        introduced_exclusive: introduced_exclusive, fixed_inclusive: fixed_inclusive)]
     end
   end
 end
