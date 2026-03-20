@@ -6,9 +6,9 @@ module Shards::Audit
 
     MAX_LOCKFILE_SIZE = 5 * 1024 * 1024 # 5MB
 
-    class_getter skipped_deps = [] of String
+    record ParseResult, dependencies : Array(Dependency), skipped_deps : Array(String)
 
-    def self.parse(path : String) : Array(Dependency)
+    def self.parse(path : String) : ParseResult
       unless File.exists?(path)
         raise ParseError.new("Lockfile not found: #{path}")
       end
@@ -22,7 +22,7 @@ module Shards::Audit
       parse_content(content)
     end
 
-    def self.parse_content(content : String) : Array(Dependency)
+    def self.parse_content(content : String) : ParseResult
       data = YAML.parse(content)
 
       unless data["shards"]?
@@ -31,7 +31,7 @@ module Shards::Audit
 
       shards = data["shards"]
       dependencies = [] of Dependency
-      @@skipped_deps = [] of String
+      skipped_deps = [] of String
 
       shards.as_h.each do |name, info|
         dep_name = name.as_s
@@ -39,7 +39,7 @@ module Shards::Audit
 
         git_url = info["git"]?.try(&.as_s)
         unless git_url
-          @@skipped_deps << dep_name
+          skipped_deps << dep_name
           next
         end
 
@@ -61,7 +61,7 @@ module Shards::Audit
         )
       end
 
-      dependencies
+      ParseResult.new(dependencies: dependencies, skipped_deps: skipped_deps)
     end
   end
 end

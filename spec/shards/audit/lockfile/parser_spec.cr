@@ -4,7 +4,7 @@ describe Shards::Audit::LockfileParser do
 
   describe ".parse" do
     it "parses basic shard.lock with versions" do
-      deps = Shards::Audit::LockfileParser.parse(File.join(FIXTURES_PATH, "shard.lock.basic"))
+      deps = Shards::Audit::LockfileParser.parse(File.join(FIXTURES_PATH, "shard.lock.basic")).dependencies
       deps.size.should eq(3)
 
       kemal = deps.find { |d| d.name == "kemal" }.not_nil!
@@ -14,7 +14,7 @@ describe Shards::Audit::LockfileParser do
     end
 
     it "parses shard.lock with commit hashes" do
-      deps = Shards::Audit::LockfileParser.parse(File.join(FIXTURES_PATH, "shard.lock.commit"))
+      deps = Shards::Audit::LockfileParser.parse(File.join(FIXTURES_PATH, "shard.lock.commit")).dependencies
       deps.size.should eq(2)
 
       ameba = deps.find { |d| d.name == "ameba" }.not_nil!
@@ -27,7 +27,7 @@ describe Shards::Audit::LockfileParser do
     end
 
     it "parses mixed dependencies" do
-      deps = Shards::Audit::LockfileParser.parse(File.join(FIXTURES_PATH, "shard.lock.mixed"))
+      deps = Shards::Audit::LockfileParser.parse(File.join(FIXTURES_PATH, "shard.lock.mixed")).dependencies
       deps.size.should eq(3)
 
       github_deps = deps.select(&.github?)
@@ -35,8 +35,8 @@ describe Shards::Audit::LockfileParser do
     end
 
     it "returns empty array for empty shards" do
-      deps = Shards::Audit::LockfileParser.parse(File.join(FIXTURES_PATH, "shard.lock.empty"))
-      deps.should be_empty
+      result = Shards::Audit::LockfileParser.parse(File.join(FIXTURES_PATH, "shard.lock.empty"))
+      result.dependencies.should be_empty
     end
 
     it "raises ParseError for oversized lockfile" do
@@ -74,14 +74,14 @@ describe Shards::Audit::LockfileParser do
           version: 1.0.0+git.commit.abc123def
       YAML
 
-      deps = Shards::Audit::LockfileParser.parse_content(content)
-      deps.size.should eq(1)
-      deps[0].name.should eq("some-shard")
-      deps[0].version.should eq("1.0.0")
-      deps[0].commit.should eq("abc123def")
+      result = Shards::Audit::LockfileParser.parse_content(content)
+      result.dependencies.size.should eq(1)
+      result.dependencies[0].name.should eq("some-shard")
+      result.dependencies[0].version.should eq("1.0.0")
+      result.dependencies[0].commit.should eq("abc123def")
     end
 
-    it "skips entries without git URL" do
+    it "skips entries without git URL and tracks them" do
       content = <<-YAML
       version: 2.0
       shards:
@@ -93,9 +93,10 @@ describe Shards::Audit::LockfileParser do
           version: 1.0.0
       YAML
 
-      deps = Shards::Audit::LockfileParser.parse_content(content)
-      deps.size.should eq(1)
-      deps[0].name.should eq("git-shard")
+      result = Shards::Audit::LockfileParser.parse_content(content)
+      result.dependencies.size.should eq(1)
+      result.dependencies[0].name.should eq("git-shard")
+      result.skipped_deps.should eq(["local-shard"])
     end
 
     it "handles shard with only commit, no version" do
@@ -107,11 +108,11 @@ describe Shards::Audit::LockfileParser do
           commit: deadbeef12345678
       YAML
 
-      deps = Shards::Audit::LockfileParser.parse_content(content)
-      deps.size.should eq(1)
-      deps[0].name.should eq("edge-shard")
-      deps[0].version.should be_nil
-      deps[0].commit.should eq("deadbeef12345678")
+      result = Shards::Audit::LockfileParser.parse_content(content)
+      result.dependencies.size.should eq(1)
+      result.dependencies[0].name.should eq("edge-shard")
+      result.dependencies[0].version.should be_nil
+      result.dependencies[0].commit.should eq("deadbeef12345678")
     end
 
     it "skips entries with empty name" do
@@ -126,9 +127,9 @@ describe Shards::Audit::LockfileParser do
           version: 2.0.0
       YAML
 
-      deps = Shards::Audit::LockfileParser.parse_content(content)
-      deps.size.should eq(1)
-      deps[0].name.should eq("valid-shard")
+      result = Shards::Audit::LockfileParser.parse_content(content)
+      result.dependencies.size.should eq(1)
+      result.dependencies[0].name.should eq("valid-shard")
     end
 
     it "handles empty shards hash" do
@@ -137,8 +138,9 @@ describe Shards::Audit::LockfileParser do
       shards: {}
       YAML
 
-      deps = Shards::Audit::LockfileParser.parse_content(content)
-      deps.should be_empty
+      result = Shards::Audit::LockfileParser.parse_content(content)
+      result.dependencies.should be_empty
+      result.skipped_deps.should be_empty
     end
   end
 end

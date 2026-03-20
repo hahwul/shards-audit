@@ -1,5 +1,12 @@
 require "../../../spec_helper"
 
+# Test helper to access private parse_next_link
+class GithubClientTestHelper < Shards::Audit::GithubClient
+  def test_parse_next_link(header : String?) : String?
+    parse_next_link(header)
+  end
+end
+
 describe Shards::Audit::GithubClient do
 
   describe "advisory response parsing" do
@@ -150,6 +157,35 @@ describe Shards::Audit::GithubClient do
       client = Shards::Audit::GithubClient.new
       result = client.scan([] of Shards::Audit::Dependency)
       result.should be_empty
+    end
+  end
+
+  describe "parse_next_link" do
+    it "extracts next URL from Link header" do
+      helper = GithubClientTestHelper.new
+      header = %(<https://api.github.com/advisories?page=2&per_page=100>; rel="next", <https://api.github.com/advisories?page=5&per_page=100>; rel="last")
+      result = helper.test_parse_next_link(header)
+      result.should eq("/advisories?page=2&per_page=100")
+    end
+
+    it "returns nil when no next link" do
+      helper = GithubClientTestHelper.new
+      header = %(<https://api.github.com/advisories?page=5&per_page=100>; rel="last")
+      result = helper.test_parse_next_link(header)
+      result.should be_nil
+    end
+
+    it "returns nil for nil header" do
+      helper = GithubClientTestHelper.new
+      result = helper.test_parse_next_link(nil)
+      result.should be_nil
+    end
+
+    it "handles URL without query string" do
+      helper = GithubClientTestHelper.new
+      header = %(<https://api.github.com/advisories>; rel="next")
+      result = helper.test_parse_next_link(header)
+      result.should eq("/advisories")
     end
   end
 end

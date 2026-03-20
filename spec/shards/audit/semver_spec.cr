@@ -156,6 +156,45 @@ describe Shards::Audit::SemverRange do
       v = Shards::Audit::Semver.parse("99.0.0").not_nil!
       range.includes?(v).should be_true
     end
+
+    it "excludes introduced boundary when introduced_exclusive" do
+      range = Shards::Audit::SemverRange.new(
+        introduced: Shards::Audit::Semver.new(1, 0, 0),
+        fixed: Shards::Audit::Semver.new(2, 0, 0),
+        introduced_exclusive: true
+      )
+      v_at = Shards::Audit::Semver.parse("1.0.0").not_nil!
+      v_above = Shards::Audit::Semver.parse("1.0.1").not_nil!
+      range.includes?(v_at).should be_false
+      range.includes?(v_above).should be_true
+    end
+
+    it "includes fixed boundary when fixed_inclusive" do
+      range = Shards::Audit::SemverRange.new(
+        introduced: Shards::Audit::Semver.new(1, 0, 0),
+        fixed: Shards::Audit::Semver.new(2, 0, 0),
+        fixed_inclusive: true
+      )
+      v_at = Shards::Audit::Semver.parse("2.0.0").not_nil!
+      v_above = Shards::Audit::Semver.parse("2.0.1").not_nil!
+      range.includes?(v_at).should be_true
+      range.includes?(v_above).should be_false
+    end
+
+    it "matches exact version with both exclusive and inclusive flags" do
+      # Simulates "= 1.5.0" → introduced=1.5.0, fixed=1.5.0, fixed_inclusive=true
+      range = Shards::Audit::SemverRange.new(
+        introduced: Shards::Audit::Semver.new(1, 5, 0),
+        fixed: Shards::Audit::Semver.new(1, 5, 0),
+        fixed_inclusive: true
+      )
+      v_match = Shards::Audit::Semver.parse("1.5.0").not_nil!
+      v_below = Shards::Audit::Semver.parse("1.4.9").not_nil!
+      v_above = Shards::Audit::Semver.parse("1.5.1").not_nil!
+      range.includes?(v_match).should be_true
+      range.includes?(v_below).should be_false
+      range.includes?(v_above).should be_false
+    end
   end
 end
 
@@ -219,6 +258,33 @@ describe Shards::Audit::SemverRangeParser do
       ranges[0].includes?(v).should be_true
       v2 = Shards::Audit::Semver.parse("1.5.1").not_nil!
       ranges[0].includes?(v2).should be_false
+    end
+
+    it "parses > with exclusive lower bound" do
+      ranges = Shards::Audit::SemverRangeParser.parse_github_range("> 1.0.0, < 2.0.0")
+      ranges.size.should eq(1)
+      v_at = Shards::Audit::Semver.parse("1.0.0").not_nil!
+      v_above = Shards::Audit::Semver.parse("1.0.1").not_nil!
+      ranges[0].includes?(v_at).should be_false
+      ranges[0].includes?(v_above).should be_true
+    end
+
+    it "parses <= with inclusive upper bound" do
+      ranges = Shards::Audit::SemverRangeParser.parse_github_range(">= 1.0.0, <= 2.0.0")
+      ranges.size.should eq(1)
+      v_at = Shards::Audit::Semver.parse("2.0.0").not_nil!
+      v_above = Shards::Audit::Semver.parse("2.0.1").not_nil!
+      ranges[0].includes?(v_at).should be_true
+      ranges[0].includes?(v_above).should be_false
+    end
+
+    it "handles > edge case without overflow" do
+      ranges = Shards::Audit::SemverRangeParser.parse_github_range("> 1.2.255")
+      ranges.size.should eq(1)
+      v_at = Shards::Audit::Semver.parse("1.2.255").not_nil!
+      v_above = Shards::Audit::Semver.parse("1.3.0").not_nil!
+      ranges[0].includes?(v_at).should be_false
+      ranges[0].includes?(v_above).should be_true
     end
   end
 end

@@ -34,12 +34,14 @@ module Shards::Audit
       load_config_file(config, config_path, no_config)
 
       # Parse lockfile
-      dependencies = begin
+      parse_result = begin
         LockfileParser.parse(config.lockfile_path)
       rescue ex : LockfileParser::ParseError
         @@stderr.puts "Error: #{ex.message}"
         return EXIT_ERROR
       end
+
+      dependencies = parse_result.dependencies
 
       if dependencies.empty?
         @@stdout.puts "No dependencies found in #{config.lockfile_path}."
@@ -47,7 +49,7 @@ module Shards::Audit
       end
 
       if config.verbose
-        skipped = LockfileParser.skipped_deps
+        skipped = parse_result.skipped_deps
         unless skipped.empty?
           @@stderr.puts "Skipped #{skipped.size} non-git dependencies: #{skipped.join(", ")}"
         end

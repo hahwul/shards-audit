@@ -60,7 +60,7 @@ module Shards::Audit
 
       log("Querying GitHub advisories for #{owner_repo}")
 
-      all_advisories = "[]"
+      collected = [] of JSON::Any
       path : String? = "/advisories?affects=#{owner_repo}&per_page=100"
       page = 0
 
@@ -68,20 +68,15 @@ module Shards::Audit
         page += 1
         body, next_path = make_request_with_links("GET", path)
 
-        if page == 1
-          all_advisories = body
-        else
-          # Merge JSON arrays: strip trailing ']' from accumulated + ',' + strip leading '[' from new
-          addition = body.strip.lstrip('[').rstrip(']').strip
-          unless addition.empty?
-            existing = all_advisories.rstrip(']')
-            all_advisories = "#{existing},#{addition}]"
-          end
+        if items = JSON.parse(body).as_a?
+          collected.concat(items)
         end
 
         path = next_path
         log("Following pagination page #{page + 1} for #{owner_repo}") if path
       end
+
+      all_advisories = collected.to_json
 
       if cache = @cache
         cache.set(cache_key, all_advisories)
@@ -128,11 +123,12 @@ module Shards::Audit
       link_header.split(',').each do |part|
         if part.includes?("rel=\"next\"")
           if match = part.match(/<([^>]+)>/)
-            url = match[1]
-            # Extract path from full URL
-            if uri = URI.parse(url)
+            begin
+              uri = URI.parse(match[1])
               return "#{uri.path}?#{uri.query}" if uri.query
               return uri.path
+            rescue URI::Error
+              next
             end
           end
         end
