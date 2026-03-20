@@ -6,6 +6,8 @@ module Shards::Audit
       @dep_map = Hash(String, Dependency).new
     end
 
+    alias ScanResult = {Array(Vulnerability), String?}
+
     def scan(dependencies : Array(Dependency)) : AuditResult
       result = AuditResult.new
       result.dependencies_scanned = dependencies.size
@@ -21,19 +23,22 @@ module Shards::Audit
 
       start_time = Time.instant
 
-      osv_channel = Channel(Array(Vulnerability)).new
-      github_channel = Channel(Array(Vulnerability)).new
+      osv_channel = Channel(ScanResult).new
+      github_channel = Channel(ScanResult).new
 
       spawn do
-        osv_channel.send(scan_osv(dependencies, result))
+        osv_channel.send(scan_osv(dependencies))
       end
 
       spawn do
-        github_channel.send(scan_github(dependencies, result))
+        github_channel.send(scan_github(dependencies))
       end
 
-      osv_vulns = osv_channel.receive
-      github_vulns = github_channel.receive
+      osv_vulns, osv_error = osv_channel.receive
+      github_vulns, github_error = github_channel.receive
+
+      result.errors << osv_error if osv_error
+      result.errors << github_error if github_error
 
       all_vulns = deduplicate(osv_vulns + github_vulns)
       VulnerabilityFilter.new(@config, @dep_map).apply(all_vulns, result)
@@ -49,19 +54,18 @@ module Shards::Audit
       Cache.new(@config.cache_dir, @config.cache_ttl)
     end
 
-    private def scan_osv(dependencies : Array(Dependency), result : AuditResult) : Array(Vulnerability)
+    private def scan_osv(dependencies : Array(Dependency)) : ScanResult
       start = Time.instant
       client = OsvClient.new(timeout: @config.timeout, verbose: @config.verbose, cache: build_cache)
       vulns = client.scan(dependencies)
       elapsed = (Time.instant - start).total_milliseconds
       log("OSV scan: #{vulns.size} vulnerabilities found in #{elapsed.round(0)}ms")
-      vulns
+      {vulns, nil}
     rescue ex : Exception
-      result.errors << "OSV scan failed: #{ex.message}"
-      [] of Vulnerability
+      {[] of Vulnerability, "OSV scan failed: #{ex.message}"}
     end
 
-    private def scan_github(dependencies : Array(Dependency), result : AuditResult) : Array(Vulnerability)
+    private def scan_github(dependencies : Array(Dependency)) : ScanResult
       start = Time.instant
       client = GithubClient.new(
         token: @config.github_token,
@@ -72,10 +76,9 @@ module Shards::Audit
       vulns = client.scan(dependencies)
       elapsed = (Time.instant - start).total_milliseconds
       log("GitHub scan: #{vulns.size} vulnerabilities found in #{elapsed.round(0)}ms")
-      vulns
+      {vulns, nil}
     rescue ex : Exception
-      result.errors << "GitHub scan failed: #{ex.message}"
-      [] of Vulnerability
+      {[] of Vulnerability, "GitHub scan failed: #{ex.message}"}
     end
 
     private def deduplicate(vulnerabilities : Array(Vulnerability)) : Array(Vulnerability)
