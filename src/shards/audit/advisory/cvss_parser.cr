@@ -14,17 +14,21 @@ module Shards::Audit
       score = 0.0
       parts.each do |part|
         case part
-        when "AV:N" then score += 2.5
+        when "AV:N" then score += 2.0
         when "AV:A" then score += 1.5
         when "AV:L" then score += 1.0
         when "AV:P" then score += 0.5
-        when "AC:L" then score += 1.5
+        when "AC:L" then score += 1.0
         when "AC:H" then score += 0.5
         when "PR:N" then score += 1.0
         when "PR:L" then score += 0.5
-        when "C:H"  then score += 2.0
+        when "UI:N" then score += 1.0
+        when "UI:R" then score += 0.5
+        when "S:C"  then score += 1.0
+        when "S:U"  then score += 0.5
+        when "C:H"  then score += 1.5
         when "C:L"  then score += 0.5
-        when "I:H"  then score += 2.0
+        when "I:H"  then score += 1.5
         when "I:L"  then score += 0.5
         when "A:H"  then score += 1.0
         when "A:L"  then score += 0.5
