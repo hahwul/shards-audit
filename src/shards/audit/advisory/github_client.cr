@@ -46,6 +46,8 @@ module Shards::Audit
       vulnerabilities
     end
 
+    MAX_PAGES = 10
+
     private def query_advisories(owner_repo : String, dep_name : String) : Array(Vulnerability)
       cache_key = "github/#{owner_repo}.json"
 
@@ -58,17 +60,37 @@ module Shards::Audit
 
       log("Querying GitHub advisories for #{owner_repo}")
 
-      path = "/advisories?affects=#{owner_repo}&per_page=100"
-      response = make_request("GET", path)
+      all_advisories = "[]"
+      path : String? = "/advisories?affects=#{owner_repo}&per_page=100"
+      page = 0
 
-      if cache = @cache
-        cache.set(cache_key, response)
+      while path && page < MAX_PAGES
+        page += 1
+        body, next_path = make_request_with_links("GET", path)
+
+        if page == 1
+          all_advisories = body
+        else
+          # Merge JSON arrays: strip trailing ']' from accumulated + ',' + strip leading '[' from new
+          addition = body.strip.lstrip('[').rstrip(']').strip
+          unless addition.empty?
+            existing = all_advisories.rstrip(']')
+            all_advisories = "#{existing},#{addition}]"
+          end
+        end
+
+        path = next_path
+        log("Following pagination page #{page + 1} for #{owner_repo}") if path
       end
 
-      parse_advisories(response, dep_name)
+      if cache = @cache
+        cache.set(cache_key, all_advisories)
+      end
+
+      parse_advisories(all_advisories, dep_name)
     end
 
-    private def make_request(method : String, path : String) : String
+    private def make_request_with_links(method : String, path : String) : {String, String?}
       with_retry do
         headers = HTTP::Headers{
           "Accept"               => "application/vnd.github+json",
@@ -88,16 +110,34 @@ module Shards::Audit
 
         case response.status_code
         when 200
-          response.body
+          next_link = parse_next_link(response.headers["Link"]?) if response.headers["Link"]?
+          {response.body, next_link}
         when 403
           raise IO::Error.new("GitHub API rate limit exceeded (use --github-token for higher limits)")
         when 422
           log("GitHub API returned 422 for #{path} — no advisories found")
-          "[]"
+          {"[]", nil}
         else
           raise IO::Error.new("GitHub API returned #{response.status_code}")
         end
       end
+    end
+
+    private def parse_next_link(link_header : String?) : String?
+      return nil unless link_header
+      link_header.split(',').each do |part|
+        if part.includes?("rel=\"next\"")
+          if match = part.match(/<([^>]+)>/)
+            url = match[1]
+            # Extract path from full URL
+            if uri = URI.parse(url)
+              return "#{uri.path}?#{uri.query}" if uri.query
+              return uri.path
+            end
+          end
+        end
+      end
+      nil
     end
 
     private def log(message : String)
