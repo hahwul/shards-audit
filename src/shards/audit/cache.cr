@@ -10,18 +10,19 @@ module Shards::Audit
     def get(key : String) : String?
       path = safe_path(key)
       return nil unless path
-      return nil unless File.exists?(path)
 
       info = File.info(path, follow_symlinks: false)
       return nil if info.symlink?
 
       mtime = info.modification_time
       if (Time.utc - mtime).total_seconds > @ttl_seconds
-        File.delete(path)
+        File.delete(path) rescue nil
         return nil
       end
 
       File.read(path)
+    rescue File::NotFoundError
+      nil
     rescue ex : IO::Error
       nil
     end
@@ -37,6 +38,8 @@ module Shards::Audit
 
       File.write(path, value)
       File.chmod(path, File::Permissions.new(0o600))
+    rescue ex : IO::Error
+      # Silently ignore cache write failures
     end
 
     def clear : Nil
