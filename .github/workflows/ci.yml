@@ -1,18 +1,26 @@
+---
 name: CI
-
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
-  test:
+  tests:
     runs-on: ubuntu-latest
-    container:
-      image: 84codes/crystal:latest-debian-13
+    strategy:
+      matrix:
+        crystal-version: [1.19.0]
     steps:
-      - uses: actions/checkout@v4
-      - run: shards install
-      - run: crystal spec
-      - run: crystal build src/run.cr -o shards-audit --release --no-debug
+      - uses: actions/checkout@v6
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: ${{ matrix.crystal-version }}
+      - name: Install dependencies
+        run: shards install
+      - name: Run tests
+        run: crystal spec
+      - name: Build
+        run: crystal build src/run.cr -o shards-audit --release --no-debug
