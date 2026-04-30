@@ -288,3 +288,41 @@ describe Shards::Audit::SemverRangeParser do
     end
   end
 end
+
+describe "Semver prerelease ordering (SemVer 2.0.0)" do
+  it "compares numeric prerelease identifiers numerically, not lexically" do
+    v2 = Shards::Audit::Semver.parse("1.0.0-rc.2").not_nil!
+    v10 = Shards::Audit::Semver.parse("1.0.0-rc.10").not_nil!
+    (v2 < v10).should be_true
+    (v10 > v2).should be_true
+  end
+
+  it "ranks numeric identifiers below non-numeric at the same position" do
+    v_num = Shards::Audit::Semver.parse("1.0.0-1").not_nil!
+    v_alpha = Shards::Audit::Semver.parse("1.0.0-alpha").not_nil!
+    (v_num < v_alpha).should be_true
+  end
+
+  it "ranks shorter identifier sets lower when leading identifiers match" do
+    v_short = Shards::Audit::Semver.parse("1.0.0-alpha").not_nil!
+    v_long = Shards::Audit::Semver.parse("1.0.0-alpha.1").not_nil!
+    (v_short < v_long).should be_true
+  end
+
+  it "classifies a vulnerable rc2 install against a fix at rc.10" do
+    # Range: introduced=1.0.0-rc.1, fixed=1.0.0-rc.10
+    # Install: 1.0.0-rc.2 — must be classified as still in range.
+    range = Shards::Audit::SemverRange.new(
+      introduced: Shards::Audit::Semver.parse("1.0.0-rc.1").not_nil!,
+      fixed: Shards::Audit::Semver.parse("1.0.0-rc.10").not_nil!
+    )
+    installed = Shards::Audit::Semver.parse("1.0.0-rc.2").not_nil!
+    range.includes?(installed).should be_true
+  end
+
+  it "treats two equal prerelease strings as equal" do
+    a = Shards::Audit::Semver.parse("1.0.0-beta.1").not_nil!
+    b = Shards::Audit::Semver.parse("1.0.0-beta.1").not_nil!
+    (a <=> b).should eq(0)
+  end
+end

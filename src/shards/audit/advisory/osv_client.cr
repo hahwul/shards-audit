@@ -1,6 +1,13 @@
 require "json"
 
 module Shards::Audit
+  # Raised when OSV returns an unexpected response shape (e.g. a
+  # querybatch reply whose results length does not match the request).
+  # Refusing to silently misalign results is safer than reporting wrong
+  # vulnerabilities for the wrong dependency.
+  class OsvResponseError < Exception
+  end
+
   class OsvClient
     include HttpRetry
     include HttpClient
@@ -9,6 +16,11 @@ module Shards::Audit
     include AdvisorySource
 
     OSV_API_BASE = "https://api.osv.dev"
+
+    # Cap on follow-up pages per dependency. The current OSV API does not
+    # publish a hard limit; stop after a generous bound to avoid runaway
+    # loops if a backend regression returns the same page_token forever.
+    MAX_OSV_PAGES = 16
 
     def initialize(@timeout : Int32 = 30, @verbose : Bool = false, @cache : Cache? = nil)
     end
@@ -52,7 +64,36 @@ module Shards::Audit
       log("OSV batch query for #{dependencies.size} dependencies (#{queries.size} queries)")
 
       response = make_request("POST", "/v1/querybatch", body)
-      extract_vuln_ids_mapped(response, query_deps)
+      vuln_ids_by_dep, followups = extract_vuln_ids_mapped(response, query_deps)
+
+      # Resolve any per-result pagination so dependencies that exceeded the
+      # querybatch page cap don't silently lose trailing vulnerabilities.
+      # Follow-ups are tagged by query index so a dep that was queried via
+      # both git URL and GitHub URL re-fires the correct one.
+      followups.each do |idx, page_token|
+        follow_paginated_query(query_deps[idx], queries[idx], page_token, vuln_ids_by_dep)
+      end
+
+      vuln_ids_by_dep
+    end
+
+    private def follow_paginated_query(dep : Dependency, query_body : String, page_token : String, vuln_ids_by_dep : Hash(String, Array(String)))
+      token : String? = page_token
+      pages = 0
+      while token && pages < MAX_OSV_PAGES
+        pages += 1
+        body = JSON.build do |json|
+          json.object do
+            JSON.parse(query_body).as_h.each { |k, v| json.field k, v }
+            json.field "page_token", token
+          end
+        end
+        log("OSV follow-up page #{pages} for #{dep.name}")
+        response = make_request("POST", "/v1/query", body)
+        token = merge_query_response(response, dep, vuln_ids_by_dep)
+      end
+
+      log("OSV pagination cap (#{MAX_OSV_PAGES}) reached for #{dep.name}; trailing pages skipped") if token
     end
 
     def fetch_vulnerability(vuln_id : String) : Vulnerability?
