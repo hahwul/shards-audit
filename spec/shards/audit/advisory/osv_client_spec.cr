@@ -271,7 +271,7 @@ describe "OSV querybatch result alignment" do
     followups.should be_empty
   end
 
-  it "captures next_page_token follow-ups for paginated entries" do
+  it "captures next_page_token follow-ups tagged by query index" do
     deps = [make_osv_dep("a"), make_osv_dep("b")]
     body = %({"results": [
       {"vulns": [{"id": "G-1"}], "next_page_token": "t1"},
@@ -281,8 +281,26 @@ describe "OSV querybatch result alignment" do
     by_dep, followups = TestOsvParserWrapper.new.map(body, deps)
     by_dep["a"].should eq(["G-1"])
     followups.size.should eq(1)
-    followups[0][0].name.should eq("a")
+    followups[0][0].should eq(0) # index of the paginating query
     followups[0][1].should eq("t1")
+  end
+
+  it "tags follow-ups for the correct query when the same dep is queried twice" do
+    # Same dep submitted via two distinct URL forms (git + github). Only
+    # the SECOND query paginates; the follow-up must cite index 1, not 0,
+    # so the client re-issues the github query body and not the primary
+    # git body.
+    dep = make_osv_dep("a")
+    deps = [dep, dep]
+    body = %({"results": [
+      {"vulns": [{"id": "G-1"}]},
+      {"vulns": [{"id": "G-2"}], "next_page_token": "t-secondary"}
+    ]})
+
+    _, followups = TestOsvParserWrapper.new.map(body, deps)
+    followups.size.should eq(1)
+    followups[0][0].should eq(1)
+    followups[0][1].should eq("t-secondary")
   end
 
   it "merges follow-up /v1/query pages into the existing dep map" do

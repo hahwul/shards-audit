@@ -68,9 +68,10 @@ module Shards::Audit
 
       # Resolve any per-result pagination so dependencies that exceeded the
       # querybatch page cap don't silently lose trailing vulnerabilities.
-      followups.each do |dep, page_token|
-        original_query = queries[query_deps.index(dep) || next]
-        follow_paginated_query(dep, original_query, page_token, vuln_ids_by_dep)
+      # Follow-ups are tagged by query index so a dep that was queried via
+      # both git URL and GitHub URL re-fires the correct one.
+      followups.each do |idx, page_token|
+        follow_paginated_query(query_deps[idx], queries[idx], page_token, vuln_ids_by_dep)
       end
 
       vuln_ids_by_dep

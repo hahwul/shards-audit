@@ -8,11 +8,14 @@ module Shards::Audit
     # spec promises results are returned in the same order as queries —
     # validate that contract so a backend change cannot silently misalign
     # vulnerabilities with dependencies. Returns a tuple of the per-dep
-    # vuln-id map and a list of `{dep, page_token}` follow-ups for any
-    # result that paginated.
-    private def extract_vuln_ids_mapped(body : String, query_deps : Array(Dependency)) : {Hash(String, Array(String)), Array({Dependency, String})}
+    # vuln-id map and a list of `{query_index, page_token}` follow-ups for
+    # any result that paginated. Tagging by index (instead of by Dependency)
+    # matters because the same dep may appear in `query_deps` twice — once
+    # for its git URL, once for its normalized GitHub URL — and only the
+    # paginating one should be re-issued.
+    private def extract_vuln_ids_mapped(body : String, query_deps : Array(Dependency)) : {Hash(String, Array(String)), Array({Int32, String})}
       vuln_ids_by_dep = Hash(String, Array(String)).new { |h, k| h[k] = [] of String }
-      followups = [] of {Dependency, String}
+      followups = [] of {Int32, String}
       data = JSON.parse(body)
 
       results = data["results"]?.try(&.as_a) || return {vuln_ids_by_dep, followups}
@@ -34,7 +37,7 @@ module Shards::Audit
         end
 
         if token = entry["next_page_token"]?.try(&.as_s)
-          followups << {dep, token} unless token.empty?
+          followups << {idx, token} unless token.empty?
         end
       end
 
