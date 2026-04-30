@@ -4,25 +4,56 @@ module Shards::Audit
   module OsvParser
     include CvssParser
 
-    private def extract_vuln_ids_mapped(body : String, query_deps : Array(Dependency)) : Hash(String, Array(String))
+    # Map querybatch results back to the originating dependencies. The OSV
+    # spec promises results are returned in the same order as queries —
+    # validate that contract so a backend change cannot silently misalign
+    # vulnerabilities with dependencies. Returns a tuple of the per-dep
+    # vuln-id map and a list of `{dep, page_token}` follow-ups for any
+    # result that paginated.
+    private def extract_vuln_ids_mapped(body : String, query_deps : Array(Dependency)) : {Hash(String, Array(String)), Array({Dependency, String})}
       vuln_ids_by_dep = Hash(String, Array(String)).new { |h, k| h[k] = [] of String }
+      followups = [] of {Dependency, String}
       data = JSON.parse(body)
 
-      results = data["results"]?.try(&.as_a) || return vuln_ids_by_dep
+      results = data["results"]?.try(&.as_a) || return {vuln_ids_by_dep, followups}
+
+      if results.size != query_deps.size
+        raise OsvResponseError.new(
+          "OSV querybatch returned #{results.size} results for #{query_deps.size} queries; refusing to map results to dependencies"
+        )
+      end
 
       results.each_with_index do |entry, idx|
-        next if idx >= query_deps.size
         dep = query_deps[idx]
-        vulns = entry["vulns"]?.try(&.as_a) || next
+        if vulns = entry["vulns"]?.try(&.as_a)
+          vulns.each do |vuln|
+            if id = vuln["id"]?.try(&.as_s)
+              vuln_ids_by_dep[dep.name] << id unless vuln_ids_by_dep[dep.name].includes?(id)
+            end
+          end
+        end
 
+        if token = entry["next_page_token"]?.try(&.as_s)
+          followups << {dep, token} unless token.empty?
+        end
+      end
+
+      {vuln_ids_by_dep, followups}
+    end
+
+    # Merge a follow-up `/v1/query` response (single-query, possibly paged)
+    # into the existing per-dep vuln-id map. Returns the next page token if
+    # the follow-up itself paginated.
+    private def merge_query_response(body : String, dep : Dependency, vuln_ids_by_dep : Hash(String, Array(String))) : String?
+      data = JSON.parse(body)
+      if vulns = data["vulns"]?.try(&.as_a)
         vulns.each do |vuln|
           if id = vuln["id"]?.try(&.as_s)
             vuln_ids_by_dep[dep.name] << id unless vuln_ids_by_dep[dep.name].includes?(id)
           end
         end
       end
-
-      vuln_ids_by_dep
+      data["next_page_token"]?.try(&.as_s).presence
     end
 
     private def parse_vulnerability(body : String) : Vulnerability?

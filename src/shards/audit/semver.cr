@@ -49,7 +49,7 @@ module Shards::Audit
       p1 = prerelease
       p2 = other.prerelease
       if p1 && p2
-        p1 <=> p2
+        Semver.compare_prerelease(p1, p2)
       elsif p1.nil? && p2.nil?
         0
       elsif p1.nil?
@@ -57,6 +57,41 @@ module Shards::Audit
       else
         -1
       end
+    end
+
+    # Compare two SemVer 2.0.0 prerelease strings dot-separated identifier
+    # by identifier. Numeric identifiers compare numerically; non-numeric
+    # identifiers compare lexically; numeric identifiers always have lower
+    # precedence than non-numeric. A larger set of identifiers has higher
+    # precedence than a smaller set when all leading ones are equal.
+    #
+    # The previous implementation used a raw String#<=> which produced
+    # `"rc10" < "rc2"` (lexical), classifying genuinely vulnerable
+    # prerelease versions as "already fixed" against advisories whose
+    # boundary lay on a prerelease.
+    def self.compare_prerelease(p1 : String, p2 : String) : Int32
+      ids1 = p1.split('.')
+      ids2 = p2.split('.')
+
+      [ids1.size, ids2.size].min.times do |i|
+        a = ids1[i]
+        b = ids2[i]
+        a_num = a.to_i64?
+        b_num = b.to_i64?
+
+        cmp = if a_num && b_num
+                a_num <=> b_num
+              elsif a_num
+                -1
+              elsif b_num
+                1
+              else
+                a <=> b
+              end
+        return cmp unless cmp == 0
+      end
+
+      ids1.size <=> ids2.size
     end
 
     def to_s(io : IO) : Nil

@@ -225,3 +225,74 @@ describe Shards::Audit::OsvClient do
     end
   end
 end
+
+# Test wrapper to exercise private OsvParser methods that map querybatch
+# results back to dependencies and merge follow-up pages.
+class TestOsvParserWrapper
+  include Shards::Audit::OsvParser
+
+  def map(body : String, deps : Array(Shards::Audit::Dependency))
+    extract_vuln_ids_mapped(body, deps)
+  end
+
+  def merge(body : String, dep : Shards::Audit::Dependency, hash : Hash(String, Array(String)))
+    merge_query_response(body, dep, hash)
+  end
+end
+
+private def make_osv_dep(name : String) : Shards::Audit::Dependency
+  Shards::Audit::Dependency.new(
+    name: name,
+    git_url: "https://github.com/x/#{name}",
+    version: "1.0.0"
+  )
+end
+
+describe "OSV querybatch result alignment" do
+  it "raises if the response length does not match the request" do
+    deps = [make_osv_dep("a"), make_osv_dep("b")]
+    body = %({"results": [{"vulns": [{"id": "G-1"}]}]})
+
+    expect_raises(Shards::Audit::OsvResponseError, /1 results for 2 queries/) do
+      TestOsvParserWrapper.new.map(body, deps)
+    end
+  end
+
+  it "maps results positionally by index" do
+    deps = [make_osv_dep("a"), make_osv_dep("b")]
+    body = %({"results": [
+      {"vulns": [{"id": "G-1"}]},
+      {"vulns": [{"id": "G-2"}, {"id": "G-3"}]}
+    ]})
+
+    by_dep, followups = TestOsvParserWrapper.new.map(body, deps)
+    by_dep["a"].should eq(["G-1"])
+    by_dep["b"].should eq(["G-2", "G-3"])
+    followups.should be_empty
+  end
+
+  it "captures next_page_token follow-ups for paginated entries" do
+    deps = [make_osv_dep("a"), make_osv_dep("b")]
+    body = %({"results": [
+      {"vulns": [{"id": "G-1"}], "next_page_token": "t1"},
+      {"vulns": []}
+    ]})
+
+    by_dep, followups = TestOsvParserWrapper.new.map(body, deps)
+    by_dep["a"].should eq(["G-1"])
+    followups.size.should eq(1)
+    followups[0][0].name.should eq("a")
+    followups[0][1].should eq("t1")
+  end
+
+  it "merges follow-up /v1/query pages into the existing dep map" do
+    by_dep = Hash(String, Array(String)).new { |h, k| h[k] = [] of String }
+    by_dep["a"] << "G-1"
+
+    body = %({"vulns": [{"id": "G-2"}, {"id": "G-1"}], "next_page_token": "t2"})
+    next_token = TestOsvParserWrapper.new.merge(body, make_osv_dep("a"), by_dep)
+
+    by_dep["a"].should eq(["G-1", "G-2"]) # G-1 deduped
+    next_token.should eq("t2")
+  end
+end
