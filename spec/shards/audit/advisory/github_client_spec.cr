@@ -8,7 +8,6 @@ class GithubClientTestHelper < Shards::Audit::GithubClient
 end
 
 describe Shards::Audit::GithubClient do
-
   describe "advisory response parsing" do
     it "parses GitHub advisory JSON" do
       body = File.read(File.join(FIXTURES_PATH, "github_advisory_response.json"))

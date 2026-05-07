@@ -23,7 +23,7 @@ module Shards::Audit
       when "medium"   then Medium
       when "moderate" then Medium
       when "low"      then Low
-      else                Unknown
+      else                 Unknown
       end
     end
 
