@@ -33,7 +33,7 @@ module Shards::Audit
       @no_cache = false,
       @ignore_ids = [] of String,
       @severity_threshold = nil,
-      @exit_zero = false
+      @exit_zero = false,
     )
     end
   end

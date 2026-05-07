@@ -1,7 +1,6 @@
 require "../../../spec_helper"
 
 describe Shards::Audit::OsvClient do
-
   describe "batch response parsing" do
     it "parses batch response JSON" do
       # Test the parsing logic by simulating what the client does internally

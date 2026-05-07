@@ -10,8 +10,8 @@ module Shards::Audit
 
     def initialize(@name, @git_url, @version = nil, @commit = nil)
       @github_owner_repo = if match = GITHUB_URL_PATTERN.match(@git_url)
-                              "#{match[1]}/#{match[2]}"
-                            end
+                             "#{match[1]}/#{match[2]}"
+                           end
     end
 
     def github? : Bool

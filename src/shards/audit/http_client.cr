@@ -7,7 +7,7 @@ module Shards::Audit
       method : String,
       path : String,
       headers : HTTP::Headers,
-      body : String? = nil
+      body : String? = nil,
     ) : HTTP::Client::Response
       uri = URI.parse(base_url)
       client = HTTP::Client.new(uri)

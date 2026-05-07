@@ -1,7 +1,6 @@
 require "../../../spec_helper"
 
 describe Shards::Audit::LockfileParser do
-
   describe ".parse" do
     it "parses basic shard.lock with versions" do
       deps = Shards::Audit::LockfileParser.parse(File.join(FIXTURES_PATH, "shard.lock.basic")).dependencies
