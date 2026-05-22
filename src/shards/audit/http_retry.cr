@@ -2,7 +2,7 @@ module Shards::Audit
   module HttpRetry
     MAX_RETRY_DELAY = 30.0
 
-    def with_retry(max_retries : Int32 = 3, base_delay : Float64 = 0.5, &block)
+    def with_retry(max_retries : Int32 = 3, base_delay : Float64 = 0.5, &)
       retries = 0
       loop do
         begin

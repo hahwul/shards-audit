@@ -62,7 +62,7 @@ module Shards::Audit
     private def parse_vulnerability(body : String) : Vulnerability?
       data = JSON.parse(body)
 
-      id = data["id"]?.try(&.as_s) || return nil
+      id = data["id"]?.try(&.as_s) || return
       summary = data["summary"]?.try(&.as_s) || ""
       aliases = data["aliases"]?.try(&.as_a.map(&.as_s)) || [] of String
 

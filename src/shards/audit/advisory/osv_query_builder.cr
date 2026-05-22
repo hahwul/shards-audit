@@ -17,7 +17,7 @@ module Shards::Audit
             json.field "version", version
           else
             # No commit or version available — skip this query
-            return nil
+            return
           end
         end
       end

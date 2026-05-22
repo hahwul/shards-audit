@@ -6,10 +6,10 @@ module Shards::Audit
     # algorithm uses non-linear formulas; this linear heuristic provides
     # a reasonable severity classification for triage purposes.
     private def parse_cvss_score(vector : String) : Float64?
-      return nil unless vector.starts_with?("CVSS:")
+      return unless vector.starts_with?("CVSS:")
 
       parts = vector.split("/")
-      return nil if parts.size < 2
+      return if parts.size < 2
 
       score = 0.0
       parts.each do |part|

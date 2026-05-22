@@ -12,7 +12,7 @@ module Shards::Audit
 
     def self.parse(str : String) : Semver?
       s = str.lstrip('v')
-      return nil if s.empty?
+      return if s.empty?
 
       pre = nil
       if dash = s.index('-')
@@ -21,17 +21,17 @@ module Shards::Audit
       end
 
       parts = s.split('.')
-      return nil if parts.size < 1 || parts.size > 3
+      return if parts.size < 1 || parts.size > 3
 
       major = parts[0].to_i32?
-      return nil unless major
+      return unless major
 
       minor = parts.size >= 2 ? parts[1].to_i32? : 0
-      return nil if parts.size >= 2 && minor.nil?
+      return if parts.size >= 2 && minor.nil?
       minor ||= 0
 
       patch = parts.size >= 3 ? parts[2].to_i32? : 0
-      return nil if parts.size >= 3 && patch.nil?
+      return if parts.size >= 3 && patch.nil?
       patch ||= 0
 
       new(major, minor, patch, pre.presence)

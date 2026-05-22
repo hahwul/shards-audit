@@ -177,7 +177,7 @@ describe "Security" do
     it "rejects oversized lockfiles" do
       tmp = File.tempname("shards-audit-big-lock")
       # Create a file slightly over 5MB
-      File.write(tmp, "version: 2.0\nshards:\n" + ("  shard#{0}:\n    git: https://github.com/a/b.git\n    version: 1.0.0\n" * 100000))
+      File.write(tmp, "version: 2.0\nshards:\n" + ("  shard0:\n    git: https://github.com/a/b.git\n    version: 1.0.0\n" * 100000))
 
       if File.size(tmp) > Shards::Audit::LockfileParser::MAX_LOCKFILE_SIZE
         expect_raises(Shards::Audit::LockfileParser::ParseError, /too large/) do

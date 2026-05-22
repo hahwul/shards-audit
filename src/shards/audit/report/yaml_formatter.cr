@@ -17,7 +17,7 @@ module Shards::Audit
       data.to_yaml(io)
     end
 
-    private def format_vuln(vuln : Vulnerability) : Hash(String, String | Float64 | Array(String) | Array(Hash(String, String?)) | Nil)
+    private def format_vuln(vuln : Vulnerability) : Hash(String, String? | Float64 | Array(String) | Array(Hash(String, String?)))
       {
         "id"              => vuln.id,
         "aliases"         => vuln.aliases,
@@ -28,9 +28,9 @@ module Shards::Audit
         "dependency_name" => vuln.dependency_name,
         "source"          => vuln.source,
         "url"             => vuln.url,
-        "affected_ranges" => vuln.affected_ranges.map { |r|
+        "affected_ranges" => vuln.affected_ranges.map do |r|
           {"introduced" => r.introduced.try(&.to_s), "fixed" => r.fixed.try(&.to_s)}
-        },
+        end,
       }
     end
   end
