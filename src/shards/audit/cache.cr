@@ -9,21 +9,21 @@ module Shards::Audit
 
     def get(key : String) : String?
       path = safe_path(key)
-      return nil unless path
+      return unless path
 
       info = File.info(path, follow_symlinks: false)
-      return nil if info.symlink?
+      return if info.symlink?
 
       mtime = info.modification_time
       if (Time.utc - mtime).total_seconds > @ttl_seconds
         File.delete(path) rescue nil
-        return nil
+        return
       end
 
       File.read(path)
     rescue File::NotFoundError
       nil
-    rescue ex : IO::Error
+    rescue IO::Error
       nil
     end
 
@@ -38,7 +38,7 @@ module Shards::Audit
 
       File.write(path, value)
       File.chmod(path, File::Permissions.new(0o600))
-    rescue ex : IO::Error
+    rescue IO::Error
       # Silently ignore cache write failures
     end
 
@@ -57,7 +57,7 @@ module Shards::Audit
 
       # Remove path traversal components and lone dots
       parts = sanitized.split("/").reject { |p| p == ".." || p == "." || p.empty? }
-      return nil if parts.empty?
+      return if parts.empty?
 
       sanitized = parts.join("/")
       path = File.join(@base_dir, sanitized)
@@ -66,7 +66,7 @@ module Shards::Audit
       expanded_base = File.expand_path(@base_dir)
       expanded_path = File.expand_path(path)
       unless expanded_path.starts_with?(expanded_base)
-        return nil
+        return
       end
 
       path

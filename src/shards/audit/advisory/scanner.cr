@@ -50,7 +50,7 @@ module Shards::Audit
     end
 
     private def build_cache : Cache?
-      return nil if @config.no_cache
+      return if @config.no_cache
       Cache.new(@config.cache_dir, @config.cache_ttl)
     end
 

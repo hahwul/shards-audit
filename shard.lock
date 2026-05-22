@@ -1,5 +1,9 @@
 version: 2.0
 shards:
+  ameba:
+    git: https://github.com/crystal-ameba/ameba.git
+    version: 1.7.0-dev+git.commit.f5d1ef6b995a6c103267dd779426f83e0b25aa8c
+
   sarif:
     git: https://github.com/hahwul/sarif.cr.git
     version: 0.1.0+git.commit.e48f889c7850a5f0065217580aa98c64956358cb

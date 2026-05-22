@@ -6,7 +6,7 @@ describe Shards::Audit::LockfileParser do
       deps = Shards::Audit::LockfileParser.parse(File.join(FIXTURES_PATH, "shard.lock.basic")).dependencies
       deps.size.should eq(3)
 
-      kemal = deps.find { |d| d.name == "kemal" }.not_nil!
+      kemal = deps.find! { |d| d.name == "kemal" }
       kemal.version.should eq("1.1.2")
       kemal.git_url.should eq("https://github.com/kemalcr/kemal.git")
       kemal.commit.should be_nil
@@ -16,11 +16,11 @@ describe Shards::Audit::LockfileParser do
       deps = Shards::Audit::LockfileParser.parse(File.join(FIXTURES_PATH, "shard.lock.commit")).dependencies
       deps.size.should eq(2)
 
-      ameba = deps.find { |d| d.name == "ameba" }.not_nil!
+      ameba = deps.find! { |d| d.name == "ameba" }
       ameba.version.should eq("1.5.0")
       ameba.commit.should eq("abc1234def5678")
 
-      lucky = deps.find { |d| d.name == "lucky" }.not_nil!
+      lucky = deps.find! { |d| d.name == "lucky" }
       lucky.version.should be_nil
       lucky.commit.should eq("deadbeef12345678")
     end
@@ -66,12 +66,12 @@ describe Shards::Audit::LockfileParser do
 
     it "parses version with embedded commit hash" do
       content = <<-YAML
-      version: 2.0
-      shards:
-        some-shard:
-          git: https://github.com/user/some-shard.git
-          version: 1.0.0+git.commit.abc123def
-      YAML
+        version: 2.0
+        shards:
+          some-shard:
+            git: https://github.com/user/some-shard.git
+            version: 1.0.0+git.commit.abc123def
+        YAML
 
       result = Shards::Audit::LockfileParser.parse_content(content)
       result.dependencies.size.should eq(1)
@@ -82,15 +82,15 @@ describe Shards::Audit::LockfileParser do
 
     it "skips entries without git URL and tracks them" do
       content = <<-YAML
-      version: 2.0
-      shards:
-        local-shard:
-          path: ../local-shard
-          version: 0.1.0
-        git-shard:
-          git: https://github.com/user/git-shard.git
-          version: 1.0.0
-      YAML
+        version: 2.0
+        shards:
+          local-shard:
+            path: ../local-shard
+            version: 0.1.0
+          git-shard:
+            git: https://github.com/user/git-shard.git
+            version: 1.0.0
+        YAML
 
       result = Shards::Audit::LockfileParser.parse_content(content)
       result.dependencies.size.should eq(1)
@@ -100,12 +100,12 @@ describe Shards::Audit::LockfileParser do
 
     it "handles shard with only commit, no version" do
       content = <<-YAML
-      version: 2.0
-      shards:
-        edge-shard:
-          git: https://github.com/user/edge-shard.git
-          commit: deadbeef12345678
-      YAML
+        version: 2.0
+        shards:
+          edge-shard:
+            git: https://github.com/user/edge-shard.git
+            commit: deadbeef12345678
+        YAML
 
       result = Shards::Audit::LockfileParser.parse_content(content)
       result.dependencies.size.should eq(1)
@@ -116,15 +116,15 @@ describe Shards::Audit::LockfileParser do
 
     it "skips entries with empty name" do
       content = <<-YAML
-      version: 2.0
-      shards:
-        "":
-          git: https://github.com/user/empty-name.git
-          version: 1.0.0
-        valid-shard:
-          git: https://github.com/user/valid.git
-          version: 2.0.0
-      YAML
+        version: 2.0
+        shards:
+          "":
+            git: https://github.com/user/empty-name.git
+            version: 1.0.0
+          valid-shard:
+            git: https://github.com/user/valid.git
+            version: 2.0.0
+        YAML
 
       result = Shards::Audit::LockfileParser.parse_content(content)
       result.dependencies.size.should eq(1)
@@ -133,9 +133,9 @@ describe Shards::Audit::LockfileParser do
 
     it "handles empty shards hash" do
       content = <<-YAML
-      version: 2.0
-      shards: {}
-      YAML
+        version: 2.0
+        shards: {}
+        YAML
 
       result = Shards::Audit::LockfileParser.parse_content(content)
       result.dependencies.should be_empty

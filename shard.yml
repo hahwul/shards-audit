@@ -1,5 +1,11 @@
 name: shards-audit
 version: 0.1.0
+description: |
+  Crystal CLI that audits shard.yml / shard.lock dependencies against
+  known vulnerability sources and reports findings in SARIF.
+repository: https://github.com/hahwul/shards-audit
+homepage: https://github.com/hahwul/shards-audit
+documentation: https://github.com/hahwul/shards-audit#readme
 
 authors:
   - hahwul <hahwul@gmail.com>
@@ -15,3 +21,8 @@ dependencies:
 crystal: '>= 1.19.1'
 
 license: MIT
+
+development_dependencies:
+  ameba:
+    github: crystal-ameba/ameba
+    branch: master

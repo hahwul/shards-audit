@@ -119,7 +119,7 @@ module Shards::Audit
     end
 
     private def parse_next_link(link_header : String?) : String?
-      return nil unless link_header
+      return unless link_header
       link_header.split(',').each do |part|
         if part.includes?("rel=\"next\"")
           if match = part.match(/<([^>]+)>/)
