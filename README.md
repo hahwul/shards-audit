@@ -31,7 +31,7 @@ shards-audit
 
 ```
 -p, --path PATH              Path to shard.lock (default: ./shard.lock)
--f, --format FORMAT          Output format: table, json, sarif (default: table)
+-f, --format FORMAT          Output format: table, json, yaml, toml, sarif (default: table)
     --github-token TOKEN     GitHub API token (or set GITHUB_TOKEN env)
     --no-color               Disable colored output
 -v, --verbose                Show verbose output
