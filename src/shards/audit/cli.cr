@@ -118,7 +118,7 @@ module Shards::Audit
       end
 
       run_audit(config, config_path: config_path, no_config: no_config)
-    rescue ex : OptionParser::InvalidOption | ArgumentError
+    rescue ex : OptionParser::InvalidOption | OptionParser::MissingOption | ArgumentError
       @@stderr.puts "Error: #{ex.message}"
       @@stderr.puts "Run 'shards-audit --help' for usage."
       EXIT_ERROR

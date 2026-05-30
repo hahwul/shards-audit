@@ -128,6 +128,43 @@ describe Shards::Audit::SarifFormatter do
       run["results"].as_a.size.should eq(2)
     end
 
+    it "emits a single rule per advisory id when it affects multiple dependencies" do
+      result = Shards::Audit::AuditResult.new
+      result.dependencies_scanned = 5
+      result.vulnerabilities_found = 2
+      # Same advisory id affecting two different dependencies.
+      result.vulnerabilities = [
+        Shards::Audit::Vulnerability.new(
+          id: "GHSA-dup-1234",
+          severity: Shards::Audit::Severity::High,
+          dependency_name: "kemal",
+          source: "OSV"
+        ),
+        Shards::Audit::Vulnerability.new(
+          id: "GHSA-dup-1234",
+          severity: Shards::Audit::Severity::High,
+          dependency_name: "amber",
+          source: "OSV"
+        ),
+      ]
+
+      io = IO::Memory.new
+      Shards::Audit::SarifFormatter.new.format(result, io)
+
+      data = JSON.parse(io.to_s)
+      run = data["runs"].as_a[0]
+
+      # Only one reportingDescriptor for the shared advisory id (SARIF §3.49.3).
+      rules = run["tool"]["driver"]["rules"].as_a
+      rules.size.should eq(1)
+      rules.map(&.["id"].as_s).should eq(["GHSA-dup-1234"])
+
+      # Both results are still emitted and reference the ruleId.
+      results = run["results"].as_a
+      results.size.should eq(2)
+      results.map(&.["ruleId"].as_s).should eq(["GHSA-dup-1234", "GHSA-dup-1234"])
+    end
+
     it "includes fingerprints on results" do
       result = Shards::Audit::AuditResult.new
       result.vulnerabilities_found = 1

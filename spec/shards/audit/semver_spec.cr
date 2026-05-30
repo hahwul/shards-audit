@@ -229,6 +229,26 @@ describe Shards::Audit::SemverRangeParser do
       ranges = Shards::Audit::SemverRangeParser.parse_osv_events(events)
       ranges.size.should eq(2)
     end
+
+    it "treats last_affected as an inclusive upper bound" do
+      events = JSON.parse(%([{"introduced":"1.0.0"}, {"last_affected":"1.5.0"}])).as_a
+      ranges = Shards::Audit::SemverRangeParser.parse_osv_events(events)
+      ranges.size.should eq(1)
+      range = ranges[0]
+      range.fixed.should_not be_nil
+      range.fixed.not_nil!.should eq(Shards::Audit::Semver.new(1, 5, 0))
+      range.fixed_inclusive.should be_true
+
+      # introduced version is affected
+      range.includes?(Shards::Audit::Semver.new(1, 0, 0)).should be_true
+      # below the bound is affected
+      range.includes?(Shards::Audit::Semver.new(1, 4, 9)).should be_true
+      # exactly last_affected is STILL affected (inclusive)
+      range.includes?(Shards::Audit::Semver.new(1, 5, 0)).should be_true
+      # above last_affected is NOT affected
+      range.includes?(Shards::Audit::Semver.new(1, 5, 1)).should be_false
+      range.includes?(Shards::Audit::Semver.new(2, 0, 0)).should be_false
+    end
   end
 
   describe ".parse_github_range" do

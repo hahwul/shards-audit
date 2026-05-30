@@ -64,6 +64,13 @@ describe Shards::Audit::CLI do
       exit_code = run_cli(["--cache-ttl", "0"])
       exit_code.should eq(Shards::Audit::CLI::EXIT_ERROR)
     end
+
+    it "returns EXIT_ERROR for an option missing its required value" do
+      # --format expects a value; omitting it raises OptionParser::MissingOption
+      # which must be caught and exit cleanly rather than crash.
+      exit_code = run_cli(["--format"])
+      exit_code.should eq(Shards::Audit::CLI::EXIT_ERROR)
+    end
   end
 
   describe "missing lockfile" do
