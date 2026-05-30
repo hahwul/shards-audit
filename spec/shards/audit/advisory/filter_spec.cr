@@ -57,9 +57,12 @@ describe "Vulnerability filtering" do
       low.meets_threshold?(Shards::Audit::Severity::Critical).should be_false
     end
 
-    it "Unknown does not meet any threshold" do
+    it "Unknown meets any threshold (never silently dropped)" do
+      # An unknown severity can't be judged below a threshold without risking
+      # a false negative, so it always passes — the finding stays visible.
       unknown = Shards::Audit::Severity::Unknown
-      unknown.meets_threshold?(Shards::Audit::Severity::Low).should be_false
+      unknown.meets_threshold?(Shards::Audit::Severity::Low).should be_true
+      unknown.meets_threshold?(Shards::Audit::Severity::Critical).should be_true
       unknown.meets_threshold?(Shards::Audit::Severity::Unknown).should be_true
     end
   end

@@ -146,9 +146,12 @@ module Shards::Audit
           fixed = Semver.parse(fixed_str)
           ranges << SemverRange.new(introduced: introduced, fixed: fixed)
           introduced = nil
-        elsif event["last_affected"]?.try(&.as_s)
-          # last_affected means no fix yet
-          ranges << SemverRange.new(introduced: introduced, fixed: nil)
+        elsif last_str = event["last_affected"]?.try(&.as_s)
+          # last_affected is an INCLUSIVE upper bound (OSV semantics): versions
+          # up to and including last_affected are vulnerable, versions above it
+          # are not. Model it as `fixed: last_affected` with fixed_inclusive.
+          last = Semver.parse(last_str)
+          ranges << SemverRange.new(introduced: introduced, fixed: last, fixed_inclusive: true)
           introduced = nil
         end
       end

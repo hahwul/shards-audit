@@ -7,14 +7,23 @@ module Shards::Audit
         b.run("shards-audit", VERSION) do |r|
           r.information_uri("https://github.com/hahwul/shards-audit")
 
+          # Track rule ids already emitted so each advisory id produces only
+          # one reportingDescriptor, even when it affects multiple
+          # dependencies. SARIF 2.1.0 §3.49.3 requires rule ids to be unique
+          # within driver.rules; duplicates break GitHub Code Scanning.
+          emitted_rule_ids = Set(String).new
+
           result.vulnerabilities.each do |vuln|
             level = severity_to_level(vuln.severity)
 
-            r.rule(vuln.id,
-              name: vuln.id,
-              short_description: vuln.summary.empty? ? vuln.id : vuln.summary,
-              help_uri: vuln.url,
-              level: level)
+            unless emitted_rule_ids.includes?(vuln.id)
+              r.rule(vuln.id,
+                name: vuln.id,
+                short_description: vuln.summary.empty? ? vuln.id : vuln.summary,
+                help_uri: vuln.url,
+                level: level)
+              emitted_rule_ids << vuln.id
+            end
 
             message = build_message(vuln)
 

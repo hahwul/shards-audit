@@ -83,7 +83,13 @@ describe Shards::Audit::Severity do
     it "returns false when severity is below threshold" do
       Shards::Audit::Severity::Medium.meets_threshold?(Shards::Audit::Severity::High).should be_false
       Shards::Audit::Severity::Low.meets_threshold?(Shards::Audit::Severity::Medium).should be_false
-      Shards::Audit::Severity::Unknown.meets_threshold?(Shards::Audit::Severity::Low).should be_false
+    end
+
+    it "never silently drops an unknown-severity finding below a threshold" do
+      # We can't determine how bad an Unknown finding is; filtering it out
+      # would be a false negative in a security audit, so it always passes.
+      Shards::Audit::Severity::Unknown.meets_threshold?(Shards::Audit::Severity::Low).should be_true
+      Shards::Audit::Severity::Unknown.meets_threshold?(Shards::Audit::Severity::Critical).should be_true
     end
   end
 

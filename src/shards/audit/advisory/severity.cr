@@ -58,6 +58,12 @@ module Shards::Audit
     end
 
     def meets_threshold?(threshold : Severity) : Bool
+      # An Unknown severity means we couldn't determine how bad the
+      # advisory is. For a security audit, silently dropping it below a
+      # threshold would be a false negative, so an unknown-severity finding
+      # always passes any threshold — better to surface it and let a human
+      # judge than to hide it.
+      return true if self == Severity::Unknown
       priority >= threshold.priority
     end
   end
