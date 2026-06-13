@@ -64,7 +64,7 @@ module Shards::Audit
 
       id = data["id"]?.try(&.as_s) || return
       summary = data["summary"]?.try(&.as_s) || ""
-      aliases = data["aliases"]?.try(&.as_a.map(&.as_s)) || [] of String
+      aliases = data["aliases"]?.try(&.as_a?).try(&.compact_map(&.as_s?)) || [] of String
 
       severity, cvss_score = extract_severity(data)
       fixed_version, all_semver_ranges = extract_affected_ranges(data)
@@ -87,9 +87,9 @@ module Shards::Audit
       cvss_score = nil
 
       # Try to get severity from CVSS
-      if severity_arr = data["severity"]?.try(&.as_a)
+      if severity_arr = data["severity"]?.try(&.as_a?)
         severity_arr.each do |sev|
-          if score_str = sev["score"]?.try(&.as_s)
+          if score_str = sev["score"]?.try(&.as_s?)
             if cvss = parse_cvss_score(score_str)
               cvss_score = cvss
               severity = Severity.from_cvss(cvss)
@@ -101,7 +101,7 @@ module Shards::Audit
 
       # Fallback to database_specific severity
       if severity.unknown?
-        if db_severity = data["database_specific"]?.try(&.["severity"]?.try(&.as_s))
+        if db_severity = data["database_specific"]?.try(&.["severity"]?.try(&.as_s?))
           severity = Severity.from_string(db_severity)
         end
       end
@@ -113,15 +113,15 @@ module Shards::Audit
       fixed_version = nil
       all_semver_ranges = [] of SemverRange
 
-      if affected_arr = data["affected"]?.try(&.as_a)
+      if affected_arr = data["affected"]?.try(&.as_a?)
         affected_arr.each do |affected|
-          if ranges = affected["ranges"]?.try(&.as_a)
+          if ranges = affected["ranges"]?.try(&.as_a?)
             ranges.each do |range|
-              events = range["events"]?.try(&.as_a) || next
+              events = range["events"]?.try(&.as_a?) || next
               # Extract fixed version from first match
               unless fixed_version
                 events.each do |event|
-                  if fixed = event["fixed"]?.try(&.as_s)
+                  if fixed = event["fixed"]?.try(&.as_s?)
                     fixed_version = fixed
                     break
                   end
@@ -140,10 +140,10 @@ module Shards::Audit
     private def extract_advisory_url(data : JSON::Any, id : String) : String?
       url = nil.as(String?)
 
-      if refs = data["references"]?.try(&.as_a)
+      if refs = data["references"]?.try(&.as_a?)
         refs.each do |ref|
-          ref_type = ref["type"]?.try(&.as_s)
-          ref_url = ref["url"]?.try(&.as_s)
+          ref_type = ref["type"]?.try(&.as_s?)
+          ref_url = ref["url"]?.try(&.as_s?)
           if ref_url && (ref_type == "ADVISORY" || ref_type == "WEB")
             url = ref_url
             break

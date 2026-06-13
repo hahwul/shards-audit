@@ -237,6 +237,10 @@ class TestOsvParserWrapper
   def merge(body : String, dep : Shards::Audit::Dependency, hash : Hash(String, Array(String)))
     merge_query_response(body, dep, hash)
   end
+
+  def parse(body : String)
+    parse_vulnerability(body)
+  end
 end
 
 private def make_osv_dep(name : String) : Shards::Audit::Dependency
@@ -311,5 +315,36 @@ describe "OSV querybatch result alignment" do
 
     by_dep["a"].should eq(["G-1", "G-2"]) # G-1 deduped
     next_token.should eq("t2")
+  end
+end
+
+describe "OSV parse_vulnerability malformed input hardening" do
+  it "handles aliases given as a string without raising TypeCastError" do
+    json = %({"id": "GHSA-bad-aliases", "summary": "s", "aliases": "oops"})
+    vuln = TestOsvParserWrapper.new.parse(json)
+    vuln.should_not be_nil
+    vuln.not_nil!.aliases.should be_empty
+  end
+
+  it "drops non-string alias elements instead of crashing" do
+    json = %({"id": "GHSA-mixed-aliases", "summary": "s", "aliases": ["CVE-2024-1", 42, "CVE-2024-2"]})
+    vuln = TestOsvParserWrapper.new.parse(json)
+    vuln.should_not be_nil
+    vuln.not_nil!.aliases.should eq(["CVE-2024-1", "CVE-2024-2"])
+  end
+
+  it "handles severity given as a number without raising TypeCastError" do
+    json = %({"id": "GHSA-bad-sev", "summary": "s", "aliases": [], "severity": 7})
+    vuln = TestOsvParserWrapper.new.parse(json)
+    vuln.should_not be_nil
+    vuln.not_nil!.severity.should eq(Shards::Audit::Severity::Unknown)
+  end
+
+  it "handles affected/references given as non-arrays without crashing" do
+    json = %({"id": "GHSA-bad-shapes", "summary": "s", "aliases": [], "affected": "nope", "references": 5})
+    vuln = TestOsvParserWrapper.new.parse(json)
+    vuln.should_not be_nil
+    vuln.not_nil!.fixed_version.should be_nil
+    vuln.not_nil!.url.should eq("https://osv.dev/vulnerability/GHSA-bad-shapes")
   end
 end

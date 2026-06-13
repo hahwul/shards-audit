@@ -114,7 +114,7 @@ module Shards::Audit
       end
 
       parse_vulnerability(response)
-    rescue ex : IO::Error | Socket::ConnectError | JSON::ParseException
+    rescue ex : IO::Error | Socket::ConnectError | JSON::ParseException | TypeCastError
       log("Failed to fetch vulnerability #{vuln_id}: #{ex.message}")
       nil
     end

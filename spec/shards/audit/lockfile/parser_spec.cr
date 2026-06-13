@@ -141,5 +141,33 @@ describe Shards::Audit::LockfileParser do
       result.dependencies.should be_empty
       result.skipped_deps.should be_empty
     end
+
+    it "raises ParseError (not TypeCastError) when 'shards' is a scalar string" do
+      expect_raises(Shards::Audit::LockfileParser::ParseError, /must be a mapping/) do
+        Shards::Audit::LockfileParser.parse_content("shards: oops\n")
+      end
+    end
+
+    it "raises ParseError (not TypeCastError) when 'shards' is an array" do
+      expect_raises(Shards::Audit::LockfileParser::ParseError, /must be a mapping/) do
+        Shards::Audit::LockfileParser.parse_content("shards:\n  - 1\n  - 2\n")
+      end
+    end
+
+    it "skips non-string shard keys without raising TypeCastError" do
+      content = <<-YAML
+        version: 2.0
+        shards:
+          ? [composite, key]
+          : git: https://github.com/user/weird.git
+          valid-shard:
+            git: https://github.com/user/valid.git
+            version: 1.0.0
+        YAML
+
+      result = Shards::Audit::LockfileParser.parse_content(content)
+      result.dependencies.size.should eq(1)
+      result.dependencies[0].name.should eq("valid-shard")
+    end
   end
 end
