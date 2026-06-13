@@ -33,8 +33,14 @@ module Shards::Audit
       dependencies = [] of Dependency
       skipped_deps = [] of String
 
-      shards.as_h.each do |name, info|
-        dep_name = name.as_s
+      shards_hash = shards.as_h?
+      unless shards_hash
+        raise ParseError.new("Invalid shard.lock format: 'shards' must be a mapping")
+      end
+
+      shards_hash.each do |name, info|
+        dep_name = name.as_s?
+        next unless dep_name
         next if dep_name.empty?
 
         git_url = info["git"]?.try(&.as_s)
