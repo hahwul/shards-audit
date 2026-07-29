@@ -18,7 +18,7 @@ dependencies:
   sarif:
     github: hahwul/sarif.cr
 
-crystal: '>= 1.19.1'
+crystal: ">= 1.21.0"
 
 license: MIT
 
