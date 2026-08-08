@@ -11,8 +11,20 @@ module Shards::Audit
     end
 
     def self.parse(str : String) : Semver?
-      s = str.lstrip('v')
+      s = str.strip
+      # A single optional `v` prefix, as shipped by git tags. `lstrip('v')`
+      # previously ate every leading `v`, so the nonsense "vvv1.0.0" parsed
+      # as 1.0.0.
+      s = s[1..] if s.starts_with?('v')
       return if s.empty?
+
+      # SemVer 2.0.0 §10: build metadata is ignored for precedence, so drop
+      # it. Keeping it made `1.2.3+git.abc` unparseable, and an unparseable
+      # bound in an OSV range silently degraded to "no bound" — i.e. a range
+      # matching every version.
+      if plus = s.index('+')
+        s = s[0...plus]
+      end
 
       pre = nil
       if dash = s.index('-')
@@ -111,6 +123,20 @@ module Shards::Audit
     def initialize(@introduced = nil, @fixed = nil, @introduced_exclusive = false, @fixed_inclusive = false)
     end
 
+    # Human/machine readable rendering of the bounds, e.g. ">=1.0.0 <2.0.0".
+    # Reports omit the inclusivity flags otherwise, which makes an inclusive
+    # upper bound look exclusive.
+    def to_constraint : String
+      parts = [] of String
+      if intro = introduced
+        parts << "#{introduced_exclusive ? ">" : ">="}#{intro}"
+      end
+      if fix = fixed
+        parts << "#{fixed_inclusive ? "<=" : "<"}#{fix}"
+      end
+      parts.empty? ? "*" : parts.join(" ")
+    end
+
     def includes?(version : Semver) : Bool
       if intro = introduced
         if introduced_exclusive
@@ -131,22 +157,27 @@ module Shards::Audit
   end
 
   module SemverRangeParser
-    def self.parse_osv_events(events : Array) : Array(SemverRange)
+    # `events` are OSV range events. Values are read with `as_s?` so a
+    # null or non-string event value yields nil instead of raising a
+    # TypeCastError deep inside a scanning fiber.
+    def self.parse_osv_events(events : Array(JSON::Any)) : Array(SemverRange)
       ranges = [] of SemverRange
       introduced : Semver? = nil
 
       events.each do |event|
-        if intro_str = event["introduced"]?.try(&.as_s)
+        next unless event.as_h?
+
+        if intro_str = event["introduced"]?.try(&.as_s?)
           introduced = if intro_str == "0"
                          Semver.new(0, 0, 0)
                        else
                          Semver.parse(intro_str)
                        end
-        elsif fixed_str = event["fixed"]?.try(&.as_s)
+        elsif fixed_str = event["fixed"]?.try(&.as_s?)
           fixed = Semver.parse(fixed_str)
           ranges << SemverRange.new(introduced: introduced, fixed: fixed)
           introduced = nil
-        elsif last_str = event["last_affected"]?.try(&.as_s)
+        elsif last_str = event["last_affected"]?.try(&.as_s?)
           # last_affected is an INCLUSIVE upper bound (OSV semantics): versions
           # up to and including last_affected are vulnerable, versions above it
           # are not. Model it as `fixed: last_affected` with fixed_inclusive.

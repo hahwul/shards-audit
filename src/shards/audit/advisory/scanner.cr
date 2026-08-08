@@ -76,12 +76,17 @@ module Shards::Audit
       vulns = client.scan(dependencies)
       elapsed = (Time.instant - start).total_milliseconds
       log("GitHub scan: #{vulns.size} vulnerabilities found in #{elapsed.round(0)}ms")
-      {vulns, nil}
+      # A source that failed for every dependency is a failed source, even
+      # though `scan` returned normally. Without this the CLI cannot tell
+      # "GitHub found nothing" from "GitHub never answered".
+      {vulns, client.errors.empty? ? nil : "GitHub scan: #{client.errors.join("; ")}"}
     rescue ex : Exception
       {[] of Vulnerability, "GitHub scan failed: #{ex.message}"}
     end
 
-    private def deduplicate(vulnerabilities : Array(Vulnerability)) : Array(Vulnerability)
+    # Collapses findings that the two sources reported for the same
+    # dependency, then returns them in a stable, total order.
+    def deduplicate(vulnerabilities : Array(Vulnerability)) : Array(Vulnerability)
       seen_ids = Set(String).new
       unique = [] of Vulnerability
 
@@ -96,8 +101,12 @@ module Shards::Audit
         unique << vuln
       end
 
-      # Sort by severity (critical first)
-      unique.sort_by { |v| -v.severity.priority }
+      # Severity first, then a total tiebreak on (dependency, id). Crystal's
+      # sort is not stable, so severity alone left equally-severe findings in
+      # an arbitrary order that also depended on which source's fiber
+      # finished first — meaning two runs over an unchanged shard.lock could
+      # emit different JSON/SARIF and churn CI diffs.
+      unique.sort_by { |v| {-v.severity.priority, v.dependency_name, v.id} }
     end
 
     private def log(message : String)

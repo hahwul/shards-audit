@@ -230,8 +230,13 @@ end
 class TestOsvParserWrapper
   include Shards::Audit::OsvParser
 
+  # `merge_batch_response` now accumulates into a caller-owned hash so that
+  # querybatch chunks can be merged; keep the old {hash, followups} shape
+  # here so these assertions stay readable.
   def map(body : String, deps : Array(Shards::Audit::Dependency))
-    extract_vuln_ids_mapped(body, deps)
+    by_dep = Hash(String, Array(String)).new { |h, k| h[k] = [] of String }
+    followups = merge_batch_response(body, deps, by_dep)
+    {by_dep, followups}
   end
 
   def merge(body : String, dep : Shards::Audit::Dependency, hash : Hash(String, Array(String)))

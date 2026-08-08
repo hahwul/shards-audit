@@ -17,7 +17,10 @@ module Shards::Audit
       data.to_yaml(io)
     end
 
-    private def format_vuln(vuln : Vulnerability) : Hash(String, String? | Float64 | Array(String) | Array(Hash(String, String?)))
+    alias RangeHash = Hash(String, String? | Bool)
+    alias VulnValue = String? | Float64 | Array(String) | Array(RangeHash)
+
+    private def format_vuln(vuln : Vulnerability) : Hash(String, VulnValue)
       {
         "id"              => vuln.id,
         "aliases"         => vuln.aliases,
@@ -29,9 +32,15 @@ module Shards::Audit
         "source"          => vuln.source,
         "url"             => vuln.url,
         "affected_ranges" => vuln.affected_ranges.map do |r|
-          {"introduced" => r.introduced.try(&.to_s), "fixed" => r.fixed.try(&.to_s)}
+          RangeHash{
+            "introduced"           => r.introduced.try(&.to_s),
+            "fixed"                => r.fixed.try(&.to_s),
+            "introduced_exclusive" => r.introduced_exclusive,
+            "fixed_inclusive"      => r.fixed_inclusive,
+            "constraint"           => r.to_constraint,
+          }
         end,
-      }
+      } of String => VulnValue
     end
   end
 end

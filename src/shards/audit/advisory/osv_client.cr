@@ -22,7 +22,12 @@ module Shards::Audit
     # loops if a backend regression returns the same page_token forever.
     MAX_OSV_PAGES = 16
 
-    def initialize(@timeout : Int32 = 30, @verbose : Bool = false, @cache : Cache? = nil)
+    # OSV documents a 1000-query ceiling per querybatch request. Stay well
+    # under it so a large lockfile is split rather than rejected wholesale.
+    MAX_BATCH_QUERIES = 500
+
+    def initialize(@timeout : Int32 = 30, @verbose : Bool = false, @cache : Cache? = nil,
+                   @api_base : String = OSV_API_BASE)
     end
 
     def query_batch(dependencies : Array(Dependency)) : Hash(String, Array(String))
@@ -33,22 +38,32 @@ module Shards::Audit
       queries = [] of String
 
       dependencies.each do |dep|
-        if q = build_osv_query(dep, normalize_git_url(dep.git_url))
+        build_dep_queries(dep).each do |q|
           queries << q
           query_deps << dep
         end
       end
 
-      dependencies.each do |dep|
-        next unless dep.github_owner_repo
-        if q = build_osv_query(dep, "https://github.com/#{dep.github_owner_repo}")
-          queries << q
-          query_deps << dep
-        end
+      vuln_ids_by_dep = Hash(String, Array(String)).new { |h, k| h[k] = [] of String }
+      return vuln_ids_by_dep if queries.empty?
+
+      log("OSV batch query for #{dependencies.size} dependencies (#{queries.size} queries)")
+
+      # OSV caps a querybatch at 1000 queries. Sending one unbounded POST
+      # meant a large lockfile silently exceeded the cap and failed the whole
+      # source — and since a dependency can now contribute up to three
+      # queries, that ceiling arrives sooner than the dependency count
+      # suggests.
+      (0...queries.size).step(MAX_BATCH_QUERIES) do |offset|
+        chunk_queries = queries[offset, MAX_BATCH_QUERIES]
+        chunk_deps = query_deps[offset, MAX_BATCH_QUERIES]
+        query_chunk(chunk_queries, chunk_deps, vuln_ids_by_dep)
       end
 
-      return Hash(String, Array(String)).new { |h, k| h[k] = [] of String } if queries.empty?
+      vuln_ids_by_dep
+    end
 
+    private def query_chunk(queries : Array(String), query_deps : Array(Dependency), vuln_ids_by_dep : Hash(String, Array(String))) : Nil
       body = JSON.build do |json|
         json.object do
           json.field "queries" do
@@ -61,20 +76,47 @@ module Shards::Audit
         end
       end
 
-      log("OSV batch query for #{dependencies.size} dependencies (#{queries.size} queries)")
-
       response = make_request("POST", "/v1/querybatch", body)
-      vuln_ids_by_dep, followups = extract_vuln_ids_mapped(response, query_deps)
+      followups = merge_batch_response(response, query_deps, vuln_ids_by_dep)
 
       # Resolve any per-result pagination so dependencies that exceeded the
       # querybatch page cap don't silently lose trailing vulnerabilities.
-      # Follow-ups are tagged by query index so a dep that was queried via
-      # both git URL and GitHub URL re-fires the correct one.
+      # Follow-ups are tagged by query index so a dep queried through several
+      # variants re-fires the correct one.
       followups.each do |idx, page_token|
         follow_paginated_query(query_deps[idx], queries[idx], page_token, vuln_ids_by_dep)
       end
+    end
 
-      vuln_ids_by_dep
+    # Queries to issue for one dependency, de-duplicated.
+    #
+    # Two problems this replaces. First, a commit query ignores the package
+    # URL entirely, so building "git URL" and "GitHub URL" variants for a
+    # dependency that has a commit produced the *same* JSON twice — every
+    # such dep doubled its share of the request payload for nothing.
+    # Second, `build_osv_query` returns a commit query *instead of* a
+    # version query when both are present, but shard.lock normally records
+    # both and OSV only matches a commit it has actually indexed. Advisories
+    # recorded against a version range were therefore missed for any
+    # dependency that happened to also carry a commit.
+    private def build_dep_queries(dep : Dependency) : Array(String)
+      package_urls = [normalize_git_url(dep.git_url)]
+      if owner_repo = dep.github_owner_repo
+        package_urls << "https://github.com/#{owner_repo}"
+      end
+
+      queries = [] of String
+      if commit = dep.commit.presence
+        queries << build_commit_query(commit)
+      end
+
+      if version = dep.version.presence
+        package_urls.each do |url|
+          queries << build_version_query(url, version)
+        end
+      end
+
+      queries.uniq
     end
 
     private def follow_paginated_query(dep : Dependency, query_body : String, page_token : String, vuln_ids_by_dep : Hash(String, Array(String)))
@@ -114,7 +156,7 @@ module Shards::Audit
       end
 
       parse_vulnerability(response)
-    rescue ex : IO::Error | Socket::ConnectError | JSON::ParseException | TypeCastError
+    rescue ex : IO::Error | Socket::ConnectError | JSON::ParseException | TypeCastError | AdvisoryRequestError
       log("Failed to fetch vulnerability #{vuln_id}: #{ex.message}")
       nil
     end
@@ -138,8 +180,16 @@ module Shards::Audit
       unique_vuln_ids.each_slice(MAX_CONCURRENCY) do |batch|
         batch.each do |vuln_id|
           spawn do
-            vuln = fetch_vulnerability(vuln_id)
-            channel.send({vuln_id, vuln})
+            # See GithubClient#scan: a fiber that raises before sending
+            # leaves `channel.receive` waiting forever, so guarantee a send.
+            vuln = nil
+            begin
+              vuln = fetch_vulnerability(vuln_id)
+            rescue ex : Exception
+              log("Failed to fetch vulnerability #{vuln_id}: #{ex.message}")
+            ensure
+              channel.send({vuln_id, vuln})
+            end
           end
         end
 
@@ -175,14 +225,16 @@ module Shards::Audit
     private def make_request(method : String, path : String, body : String? = nil) : String
       with_retry do
         headers = HTTP::Headers{"Content-Type" => "application/json"}
-        response = http_request(OSV_API_BASE, method, path, headers, body)
+        response = http_request(@api_base, method, path, headers, body)
 
         if retryable_status?(response.status_code)
           raise IO::Error.new("OSV API returned #{response.status_code} (retryable)")
         end
 
         unless response.status.success?
-          raise IO::Error.new("OSV API returned #{response.status_code}")
+          # Not an IO::Error: a 400 or 404 will answer the same way however
+          # many times we ask, so retrying only adds latency.
+          raise AdvisoryRequestError.new("OSV API returned #{response.status_code}")
         end
 
         response.body

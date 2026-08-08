@@ -122,6 +122,14 @@ module Shards::Audit
       @@stderr.puts "Error: #{ex.message}"
       @@stderr.puts "Run 'shards-audit --help' for usage."
       EXIT_ERROR
+    rescue ex : Exception
+      # Anything unhandled must still exit 2. Letting it escape to `main`
+      # aborts with status 1 — indistinguishable from EXIT_VULNS, so a
+      # crashing audit reads to CI as a successful scan that found
+      # vulnerabilities.
+      @@stderr.puts "Error: unexpected failure: #{ex.message} (#{ex.class})"
+      @@stderr.puts "Please report this at https://github.com/hahwul/shards-audit/issues"
+      EXIT_ERROR
     end
   end
 end

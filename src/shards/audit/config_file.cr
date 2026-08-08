@@ -9,9 +9,13 @@ module Shards::Audit
     def initialize(@id, @reason = nil, @expires = nil)
     end
 
+    # `expires` is a calendar date, so it stays active through the *whole*
+    # of that day. Comparing against the parsed midnight made
+    # `expires: 2025-12-31` lapse at 00:00 on the 31st — a day early, which
+    # surfaces a suppressed finding sooner than the user asked for.
     def active? : Bool
       return true unless exp = expires
-      Time.utc < exp
+      Time.utc < exp + 1.day
     end
   end
 
@@ -45,15 +49,19 @@ module Shards::Audit
       content = File.read(path)
       yaml = YAML.parse(content)
 
-      return new if yaml.raw.nil?
+      # `YAML::Any#[]?` raises on a non-mapping receiver, so a config file
+      # that is empty, a bare scalar, or a top-level list must be rejected
+      # by shape rather than indexed into.
+      root = yaml.as_h? || return new
 
       ignore = [] of IgnoreEntry
-      if ignore_list = yaml["ignore"]?.try(&.as_a?)
+      if ignore_list = root["ignore"]?.try(&.as_a?)
         ignore_list.each do |entry|
-          id = entry["id"]?.try(&.as_s?) || next
-          reason = entry["reason"]?.try(&.as_s?)
+          entry_hash = entry.as_h? || next
+          id = entry_hash["id"]?.try(&.as_s?) || next
+          reason = entry_hash["reason"]?.try(&.as_s?)
           expires = nil
-          if exp_str = entry["expires"]?.try(&.as_s?)
+          if exp_str = entry_hash["expires"]?.try(&.as_s?)
             begin
               expires = Time.parse(exp_str, "%Y-%m-%d", Time::Location::UTC)
             rescue
@@ -65,7 +73,7 @@ module Shards::Audit
       end
 
       severity_threshold = nil
-      if sev_str = yaml["severity_threshold"]?.try(&.as_s?)
+      if sev_str = root["severity_threshold"]?.try(&.as_s?)
         sev = Severity.from_string(sev_str)
         severity_threshold = sev unless sev.unknown?
       end

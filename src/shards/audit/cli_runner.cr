@@ -84,7 +84,7 @@ module Shards::Audit
       in OutputFormat::Toml
         TomlFormatter.new.format(result, @@stdout)
       in OutputFormat::Sarif
-        SarifFormatter.new.format(result, @@stdout)
+        SarifFormatter.new(config.lockfile_path).format(result, @@stdout)
       end
 
       return EXIT_CLEAN if config.exit_zero
