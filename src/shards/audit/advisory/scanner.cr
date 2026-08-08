@@ -54,9 +54,25 @@ module Shards::Audit
       Cache.new(@config.cache_dir, @config.cache_ttl)
     end
 
+    # Overridable so integration specs can point the scanner at a local
+    # stand-in for the advisory APIs. Constructing the clients inline left
+    # the whole scan-to-report path untestable without real network calls.
+    protected def build_osv_client : OsvClient
+      OsvClient.new(timeout: @config.timeout, verbose: @config.verbose, cache: build_cache)
+    end
+
+    protected def build_github_client : GithubClient
+      GithubClient.new(
+        token: @config.github_token,
+        timeout: @config.timeout,
+        verbose: @config.verbose,
+        cache: build_cache
+      )
+    end
+
     private def scan_osv(dependencies : Array(Dependency)) : ScanResult
       start = Time.instant
-      client = OsvClient.new(timeout: @config.timeout, verbose: @config.verbose, cache: build_cache)
+      client = build_osv_client
       vulns = client.scan(dependencies)
       elapsed = (Time.instant - start).total_milliseconds
       log("OSV scan: #{vulns.size} vulnerabilities found in #{elapsed.round(0)}ms")
@@ -67,12 +83,7 @@ module Shards::Audit
 
     private def scan_github(dependencies : Array(Dependency)) : ScanResult
       start = Time.instant
-      client = GithubClient.new(
-        token: @config.github_token,
-        timeout: @config.timeout,
-        verbose: @config.verbose,
-        cache: build_cache
-      )
+      client = build_github_client
       vulns = client.scan(dependencies)
       elapsed = (Time.instant - start).total_milliseconds
       log("GitHub scan: #{vulns.size} vulnerabilities found in #{elapsed.round(0)}ms")
