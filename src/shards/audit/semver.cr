@@ -11,8 +11,20 @@ module Shards::Audit
     end
 
     def self.parse(str : String) : Semver?
-      s = str.lstrip('v')
+      s = str.strip
+      # A single optional `v` prefix, as shipped by git tags. `lstrip('v')`
+      # previously ate every leading `v`, so the nonsense "vvv1.0.0" parsed
+      # as 1.0.0.
+      s = s[1..] if s.starts_with?('v')
       return if s.empty?
+
+      # SemVer 2.0.0 §10: build metadata is ignored for precedence, so drop
+      # it. Keeping it made `1.2.3+git.abc` unparseable, and an unparseable
+      # bound in an OSV range silently degraded to "no bound" — i.e. a range
+      # matching every version.
+      if plus = s.index('+')
+        s = s[0...plus]
+      end
 
       pre = nil
       if dash = s.index('-')
@@ -111,6 +123,20 @@ module Shards::Audit
     def initialize(@introduced = nil, @fixed = nil, @introduced_exclusive = false, @fixed_inclusive = false)
     end
 
+    # Human/machine readable rendering of the bounds, e.g. ">=1.0.0 <2.0.0".
+    # Reports omit the inclusivity flags otherwise, which makes an inclusive
+    # upper bound look exclusive.
+    def to_constraint : String
+      parts = [] of String
+      if intro = introduced
+        parts << "#{introduced_exclusive ? ">" : ">="}#{intro}"
+      end
+      if fix = fixed
+        parts << "#{fixed_inclusive ? "<=" : "<"}#{fix}"
+      end
+      parts.empty? ? "*" : parts.join(" ")
+    end
+
     def includes?(version : Semver) : Bool
       if intro = introduced
         if introduced_exclusive
@@ -131,22 +157,33 @@ module Shards::Audit
   end
 
   module SemverRangeParser
-    def self.parse_osv_events(events : Array) : Array(SemverRange)
+    # `events` are OSV range events. Values are read with `as_s?` so a
+    # null or non-string event value yields nil instead of raising a
+    # TypeCastError deep inside a scanning fiber.
+    def self.parse_osv_events(events : Array(JSON::Any)) : Array(SemverRange)
       ranges = [] of SemverRange
       introduced : Semver? = nil
 
       events.each do |event|
-        if intro_str = event["introduced"]?.try(&.as_s)
+        next unless event.as_h?
+
+        if intro_str = event["introduced"]?.try(&.as_s?)
+          # Two `introduced` events with no `fixed` between them: the first
+          # window was never closed, so it is still vulnerable. Overwriting
+          # it discarded that window entirely and a version inside it was
+          # judged safe.
+          ranges << SemverRange.new(introduced: introduced, fixed: nil) if introduced
+
           introduced = if intro_str == "0"
                          Semver.new(0, 0, 0)
                        else
                          Semver.parse(intro_str)
                        end
-        elsif fixed_str = event["fixed"]?.try(&.as_s)
+        elsif fixed_str = event["fixed"]?.try(&.as_s?)
           fixed = Semver.parse(fixed_str)
           ranges << SemverRange.new(introduced: introduced, fixed: fixed)
           introduced = nil
-        elsif last_str = event["last_affected"]?.try(&.as_s)
+        elsif last_str = event["last_affected"]?.try(&.as_s?)
           # last_affected is an INCLUSIVE upper bound (OSV semantics): versions
           # up to and including last_affected are vulnerable, versions above it
           # are not. Model it as `fixed: last_affected` with fixed_inclusive.
@@ -164,46 +201,107 @@ module Shards::Audit
       ranges
     end
 
-    def self.parse_github_range(range_str : String) : Array(SemverRange)
-      return [] of SemverRange if range_str.strip.empty?
+    # Matches one constraint of a GitHub `vulnerable_version_range`.
+    #
+    # The separating whitespace is optional: GitHub normally writes
+    # ">= 1.0.0, < 1.2.0", but a `constraint.split(/\s+/, 2)` parse dropped
+    # every constraint written without a space (">=1.0.0, <1.2.0"), leaving
+    # the advisory with no ranges at all and version filtering disabled.
+    GITHUB_CONSTRAINT_PATTERN = /\A(>=|<=|==|=|>|<)\s*(\S+)\z/
 
-      constraints = range_str.split(',').map(&.strip).reject(&.empty?)
+    # Parses a GitHub `vulnerable_version_range` into one or more windows.
+    #
+    # A single accumulator pair (introduced/fixed) silently collapsed a
+    # multi-window range: ">= 1.0.0, < 1.1.0, >= 2.0.0, < 2.1.0" kept only
+    # the last window, so a user on 1.0.5 — squarely inside the first — was
+    # judged unaffected. That is a false negative, the failure mode this tool
+    # exists to prevent. A lower bound that arrives when a window is already
+    # open now closes that window and starts the next.
+    def self.parse_github_range(range_str : String) : Array(SemverRange)
+      return [] of SemverRange if range_str.blank?
+
+      ranges = [] of SemverRange
       introduced : Semver? = nil
       fixed : Semver? = nil
-
       introduced_exclusive = false
       fixed_inclusive = false
 
-      constraints.each do |constraint|
-        parts = constraint.split(/\s+/, 2)
-        next if parts.size != 2
+      range_str.split(',') do |raw|
+        constraint = raw.strip
+        next if constraint.empty?
 
-        op = parts[0]
-        ver = Semver.parse(parts[1])
-        next unless ver
+        if match = GITHUB_CONSTRAINT_PATTERN.match(constraint)
+          op, version_str = match[1], match[2]
+        else
+          # A bare version with no operator denotes that exact version.
+          op, version_str = "=", constraint
+        end
+
+        version = Semver.parse(version_str)
+        next unless version
+
+        # Constraints inside one window are ANDed, so a repeated bound must
+        # be intersected (keep the tighter one) rather than overwritten. But
+        # a *lower* bound arriving after the window already has an upper
+        # bound starts the next window, which is how a multi-window range is
+        # written: ">= 1.0.0, < 1.1.0, >= 2.0.0, < 2.1.0".
+        lower = op.in?(">=", ">", "=", "==")
+        if lower && fixed
+          ranges << SemverRange.new(introduced: introduced, fixed: fixed,
+            introduced_exclusive: introduced_exclusive, fixed_inclusive: fixed_inclusive)
+          introduced = nil
+          fixed = nil
+          introduced_exclusive = false
+          fixed_inclusive = false
+        end
 
         case op
-        when ">="
-          introduced = ver
-        when ">"
-          introduced = ver
-          introduced_exclusive = true
-        when "<"
-          fixed = ver
-        when "<="
-          fixed = ver
-          fixed_inclusive = true
-        when "="
-          introduced = ver
-          fixed = ver
+        when ">=", ">"
+          exclusive = op == ">"
+          if tighter_lower?(version, exclusive, introduced, introduced_exclusive)
+            introduced = version
+            introduced_exclusive = exclusive
+          end
+        when "<", "<="
+          inclusive = op == "<="
+          if tighter_upper?(version, inclusive, fixed, fixed_inclusive)
+            fixed = version
+            fixed_inclusive = inclusive
+          end
+        when "=", "=="
+          introduced = version
+          fixed = version
+          introduced_exclusive = false
           fixed_inclusive = true
         end
       end
 
-      # If we only got a lower bound, it means still vulnerable
-      return [] of SemverRange unless introduced || fixed
-      [SemverRange.new(introduced: introduced, fixed: fixed,
-        introduced_exclusive: introduced_exclusive, fixed_inclusive: fixed_inclusive)]
+      if introduced || fixed
+        ranges << SemverRange.new(introduced: introduced, fixed: fixed,
+          introduced_exclusive: introduced_exclusive, fixed_inclusive: fixed_inclusive)
+      end
+
+      ranges
+    end
+
+    # A lower bound is tighter when it is higher; at equal versions the
+    # exclusive form is tighter.
+    private def self.tighter_lower?(candidate : Semver, candidate_exclusive : Bool,
+                                    current : Semver?, current_exclusive : Bool) : Bool
+      return true unless current
+      cmp = candidate <=> current
+      return cmp > 0 unless cmp == 0
+      candidate_exclusive && !current_exclusive
+    end
+
+    # An upper bound is tighter when it is lower; at equal versions the
+    # exclusive form is tighter.
+    private def self.tighter_upper?(candidate : Semver, candidate_inclusive : Bool,
+                                    current : Semver?, current_inclusive : Bool) : Bool
+      return true unless current
+      cmp = candidate <=> current
+      return cmp < 0 unless cmp == 0
+      !candidate_inclusive && current_inclusive
     end
   end
 end

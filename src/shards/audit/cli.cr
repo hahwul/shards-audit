@@ -7,7 +7,18 @@ module Shards::Audit
     EXIT_ERROR = 2
 
     class_property stdout : IO = STDOUT
-    class_property stderr : IO = STDERR
+
+    # A single stderr sink. `CLI.stderr` and `Shards::Audit.stderr` used to
+    # be independent class properties, so redirecting one still let scanner,
+    # client and config diagnostics escape through the other — which is why
+    # spec output kept leaking warnings to the real terminal.
+    def self.stderr : IO
+      Shards::Audit.stderr
+    end
+
+    def self.stderr=(io : IO) : IO
+      Shards::Audit.stderr = io
+    end
 
     def self.run(args = ARGV) : Int32
       config = Config.new
@@ -25,6 +36,7 @@ module Shards::Audit
         opts.separator "Options:"
 
         opts.on("-p PATH", "--path PATH", "Path to shard.lock (default: ./shard.lock)") do |path|
+          raise ArgumentError.new("--path requires a non-empty value.") if path.blank?
           config.lockfile_path = path
         end
 
@@ -57,6 +69,9 @@ module Shards::Audit
         end
 
         opts.on("--cache-dir PATH", "Cache directory (default: ~/.cache/shards-audit/)") do |path|
+          # An empty value made File.join produce a relative path, scattering
+          # the cache through the working directory.
+          raise ArgumentError.new("--cache-dir requires a non-empty value.") if path.blank?
           config.cache_dir = path
         end
 
@@ -105,6 +120,17 @@ module Shards::Audit
         end
       end
 
+      # Without an unknown_args handler OptionParser silently discards
+      # leftover positionals, so `shards-audit path/to/shard.lock` scanned
+      # ./shard.lock instead and a CI job got a green pass for a file it
+      # never read.
+      parser.unknown_args do |before_dash, _|
+        unless before_dash.empty?
+          raise ArgumentError.new(
+            "Unexpected argument: #{before_dash.first.inspect}. Use '-p PATH' to choose a lockfile.")
+        end
+      end
+
       parser.parse(args)
 
       if show_version
@@ -119,8 +145,16 @@ module Shards::Audit
 
       run_audit(config, config_path: config_path, no_config: no_config)
     rescue ex : OptionParser::InvalidOption | OptionParser::MissingOption | ArgumentError
-      @@stderr.puts "Error: #{ex.message}"
-      @@stderr.puts "Run 'shards-audit --help' for usage."
+      stderr.puts "Error: #{ex.message}"
+      stderr.puts "Run 'shards-audit --help' for usage."
+      EXIT_ERROR
+    rescue ex : Exception
+      # Anything unhandled must still exit 2. Letting it escape to `main`
+      # aborts with status 1 — indistinguishable from EXIT_VULNS, so a
+      # crashing audit reads to CI as a successful scan that found
+      # vulnerabilities.
+      stderr.puts "Error: unexpected failure: #{ex.message} (#{ex.class})"
+      stderr.puts "Please report this at https://github.com/hahwul/shards-audit/issues"
       EXIT_ERROR
     end
   end

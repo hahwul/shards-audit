@@ -33,7 +33,8 @@ shards-audit
 -p, --path PATH              Path to shard.lock (default: ./shard.lock)
 -f, --format FORMAT          Output format: table, json, yaml, toml, sarif (default: table)
     --github-token TOKEN     GitHub API token (or set GITHUB_TOKEN env)
-    --no-color               Disable colored output
+    --no-color               Disable colored output (also honours NO_COLOR;
+                             color is off automatically when stdout is piped)
 -v, --verbose                Show verbose output
     --no-cache               Disable response caching
     --cache-dir PATH         Cache directory (default: ~/.cache/shards-audit/)
@@ -87,6 +88,25 @@ ignore:
 
 severity_threshold: medium
 ```
+
+An ignore entry stays suppressed through the whole of its `expires` date and
+becomes active again the next day.
+
+## Proxies
+
+Outbound requests honour the conventional proxy environment variables. HTTPS
+targets are reached with a `CONNECT` tunnel, so TLS still terminates at the
+advisory API rather than at the proxy.
+
+```bash
+export HTTPS_PROXY=http://proxy.internal:3128
+export NO_PROXY=.internal.example        # comma-separated; '*' disables proxying
+shards-audit
+```
+
+`https_proxy`/`HTTPS_PROXY` apply to HTTPS targets, `http_proxy`/`HTTP_PROXY`
+to HTTP, and `all_proxy`/`ALL_PROXY` to either. Credentials may be embedded in
+the URL (`http://user:pass@proxy:3128`).
 
 ## Development
 

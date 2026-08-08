@@ -9,7 +9,10 @@ module Shards::Audit
 
     def format(result : AuditResult, io : IO = STDOUT) : Nil
       if result.clean?
-        io.puts colorize("No vulnerabilities found!", "\e[32m") # green
+        # A source that never answered means part of the picture is missing,
+        # so the unqualified all-clear would be a promise we cannot make.
+        message = result.errors.empty? ? "No vulnerabilities found!" : "No vulnerabilities found in the sources that responded."
+        io.puts colorize(message, result.errors.empty? ? "\e[32m" : "\e[33m")
         io.puts "#{result.dependencies_scanned} dependencies scanned."
         print_errors(result, io)
         return

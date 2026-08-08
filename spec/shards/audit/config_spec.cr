@@ -8,7 +8,9 @@ describe Shards::Audit::Config do
       config.lockfile_path.should eq("./shard.lock")
       config.format.should eq(Shards::Audit::OutputFormat::Table)
       config.verbose.should be_false
-      config.no_color.should be_false
+      # Colour now defaults to the environment (NO_COLOR / stdout is a tty)
+      # rather than always-on, so that piped output stays clean.
+      config.no_color.should eq(Shards::Audit::Config.color_disabled_by_environment?)
       config.timeout.should eq(30)
       config.cache_ttl.should eq(86400)
       config.no_cache.should be_false

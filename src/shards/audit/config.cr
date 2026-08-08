@@ -26,15 +26,34 @@ module Shards::Audit
       @format = OutputFormat::Table,
       @github_token = ENV["GITHUB_TOKEN"]?,
       @verbose = false,
-      @no_color = false,
+      @no_color = Config.color_disabled_by_environment?,
       @timeout = 30,
-      @cache_dir = File.join(Path.home.to_s, ".cache", "shards-audit"),
+      @cache_dir = Config.default_cache_dir,
       @cache_ttl = 86400,
       @no_cache = false,
       @ignore_ids = [] of String,
       @severity_threshold = nil,
       @exit_zero = false,
     )
+    end
+
+    # `--no-color` was the only way to suppress ANSI codes, so piping the
+    # table output to a file or a CI log captured escape sequences. Honour
+    # the two conventions that callers actually rely on: the NO_COLOR
+    # standard, and stdout not being a terminal.
+    def self.color_disabled_by_environment? : Bool
+      return true if ENV["NO_COLOR"]?.presence
+      !STDOUT.tty?
+    end
+
+    # Respects the XDG base directory spec, which is where a Linux CI image
+    # or a sandboxed runner expects a cache to live.
+    def self.default_cache_dir : String
+      if xdg = ENV["XDG_CACHE_HOME"]?.presence
+        File.join(xdg, "shards-audit")
+      else
+        File.join(Path.home.to_s, ".cache", "shards-audit")
+      end
     end
   end
 

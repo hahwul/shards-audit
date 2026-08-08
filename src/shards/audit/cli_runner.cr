@@ -7,14 +7,14 @@ module Shards::Audit
       if path && File.exists?(path)
         begin
           cf = ConfigFile.load(path)
-          @@stderr.puts "Loaded config: #{path}" if config.verbose
+          stderr.puts "Loaded config: #{path}" if config.verbose
 
           # Merge ignore entries (active only)
           cf.ignore.each do |entry|
             if entry.active?
               config.ignore_ids << entry.id unless config.ignore_ids.includes?(entry.id)
             else
-              @@stderr.puts "Warning: Ignore entry #{entry.id} has expired (#{entry.expires})" if config.verbose
+              stderr.puts "Warning: Ignore entry #{entry.id} has expired (#{entry.expires})" if config.verbose
             end
           end
 
@@ -23,10 +23,10 @@ module Shards::Audit
             config.severity_threshold = cf.severity_threshold
           end
         rescue ex : YAML::ParseException | IO::Error
-          @@stderr.puts "Warning: Failed to load config file #{path}: #{ex.message}"
+          stderr.puts "Warning: Failed to load config file #{path}: #{ex.message}"
         end
       elsif config_path
-        @@stderr.puts "Warning: Config file not found: #{config_path}"
+        stderr.puts "Warning: Config file not found: #{config_path}"
       end
     end
 
@@ -37,23 +37,31 @@ module Shards::Audit
       parse_result = begin
         LockfileParser.parse(config.lockfile_path)
       rescue ex : LockfileParser::ParseError
-        @@stderr.puts "Error: #{ex.message}"
+        stderr.puts "Error: #{ex.message}"
         return EXIT_ERROR
       end
 
       dependencies = parse_result.dependencies
 
       if dependencies.empty?
-        @@stdout.puts "No dependencies found in #{config.lockfile_path}."
+        # A machine format must still produce a parseable document. Printing
+        # this sentence on stdout regardless of --format meant
+        # `shards-audit -f json > out.json` wrote prose where a pipeline
+        # expected JSON, and the next step in the CI job failed on it.
+        if config.format.table?
+          @@stdout.puts "No dependencies found in #{config.lockfile_path}."
+        else
+          emit_report(config, AuditResult.new)
+        end
         return EXIT_CLEAN
       end
 
       if config.verbose
         skipped = parse_result.skipped_deps
         unless skipped.empty?
-          @@stderr.puts "Skipped #{skipped.size} non-git dependencies: #{skipped.join(", ")}"
+          stderr.puts "Skipped #{skipped.size} non-git dependencies: #{skipped.join(", ")}"
         end
-        @@stderr.puts "Scanning #{dependencies.size} dependencies..."
+        stderr.puts "Scanning #{dependencies.size} dependencies..."
       end
 
       # Run scan
@@ -62,18 +70,24 @@ module Shards::Audit
 
       # Check if all sources failed
       if result.errors.size >= Scanner::SOURCE_COUNT && result.vulnerabilities.empty?
-        @@stderr.puts "Error: All vulnerability sources failed."
-        result.errors.each { |e| @@stderr.puts "  - #{e}" }
-        @@stderr.puts
-        @@stderr.puts "Suggestions:"
-        @@stderr.puts "  - Check your network connection"
-        @@stderr.puts "  - If behind a proxy, ensure HTTP_PROXY/HTTPS_PROXY are set"
-        @@stderr.puts "  - Set --github-token or GITHUB_TOKEN for GitHub API access"
-        @@stderr.puts "  - Run with --verbose for more details"
+        stderr.puts "Error: All vulnerability sources failed."
+        result.errors.each { |e| stderr.puts "  - #{e}" }
+        stderr.puts
+        stderr.puts "Suggestions:"
+        stderr.puts "  - Check your network connection"
+        stderr.puts "  - If behind a proxy, ensure HTTP_PROXY/HTTPS_PROXY are set"
+        stderr.puts "  - Set --github-token or GITHUB_TOKEN for GitHub API access"
+        stderr.puts "  - Run with --verbose for more details"
         return EXIT_ERROR
       end
 
-      # Format output
+      emit_report(config, result)
+
+      return EXIT_CLEAN if config.exit_zero
+      result.clean? ? EXIT_CLEAN : EXIT_VULNS
+    end
+
+    private def self.emit_report(config : Config, result : AuditResult) : Nil
       case config.format
       in OutputFormat::Table
         TableFormatter.new(no_color: config.no_color).format(result, @@stdout)
@@ -84,11 +98,8 @@ module Shards::Audit
       in OutputFormat::Toml
         TomlFormatter.new.format(result, @@stdout)
       in OutputFormat::Sarif
-        SarifFormatter.new.format(result, @@stdout)
+        SarifFormatter.new(config.lockfile_path).format(result, @@stdout)
       end
-
-      return EXIT_CLEAN if config.exit_zero
-      result.clean? ? EXIT_CLEAN : EXIT_VULNS
     end
   end
 end

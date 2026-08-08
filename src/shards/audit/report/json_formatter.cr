@@ -28,6 +28,13 @@ module Shards::Audit
                         json.object do
                           json.field "introduced", range.introduced.try(&.to_s)
                           json.field "fixed", range.fixed.try(&.to_s)
+                          # Without these flags an inclusive upper bound
+                          # (OSV `last_affected`) is indistinguishable from
+                          # an exclusive one, so a consumer reads the
+                          # boundary version as safe when it is affected.
+                          json.field "introduced_exclusive", range.introduced_exclusive
+                          json.field "fixed_inclusive", range.fixed_inclusive
+                          json.field "constraint", range.to_constraint
                         end
                       end
                     end

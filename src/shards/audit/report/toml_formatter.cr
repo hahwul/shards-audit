@@ -38,13 +38,39 @@ module Shards::Audit
           if fix = range.fixed
             io.puts "  fixed = #{quote(fix.to_s)}"
           end
+          io.puts "  introduced_exclusive = #{range.introduced_exclusive}"
+          io.puts "  fixed_inclusive = #{range.fixed_inclusive}"
+          io.puts "  constraint = #{quote(range.to_constraint)}"
         end
       end
     end
 
+    # TOML basic strings forbid unescaped control characters (U+0000-U+0008,
+    # U+000A-U+001F, U+007F). Only `\n` was handled, so an advisory summary
+    # containing a carriage return — common in feeds that wrap text with
+    # CRLF — emitted a document no TOML parser would accept.
     private def quote(str : String) : String
-      escaped = str.gsub("\\", "\\\\").gsub("\"", "\\\"").gsub("\n", "\\n")
-      "\"#{escaped}\""
+      String.build do |io|
+        io << '"'
+        str.each_char do |char|
+          case char
+          when '\\' then io << "\\\\"
+          when '"'  then io << "\\\""
+          when '\b' then io << "\\b"
+          when '\f' then io << "\\f"
+          when '\n' then io << "\\n"
+          when '\r' then io << "\\r"
+          when '\t' then io << "\\t"
+          else
+            if char.control?
+              io << "\\u" << char.ord.to_s(16, upcase: true).rjust(4, '0')
+            else
+              io << char
+            end
+          end
+        end
+        io << '"'
+      end
     end
   end
 end
