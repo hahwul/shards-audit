@@ -9,7 +9,7 @@ private def run_cli_capture(args : Array(String)) : {Int32, String, String}
   {exit_code, stdout.to_s, stderr.to_s}
 ensure
   Shards::Audit::CLI.stdout = STDOUT
-  Shards::Audit::CLI.stderr = STDERR
+  Shards::Audit::CLI.stderr = SPEC_STDERR
 end
 
 private def write_tmp(name : String, content : String) : String

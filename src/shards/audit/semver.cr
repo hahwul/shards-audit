@@ -168,6 +168,12 @@ module Shards::Audit
         next unless event.as_h?
 
         if intro_str = event["introduced"]?.try(&.as_s?)
+          # Two `introduced` events with no `fixed` between them: the first
+          # window was never closed, so it is still vulnerable. Overwriting
+          # it discarded that window entirely and a version inside it was
+          # judged safe.
+          ranges << SemverRange.new(introduced: introduced, fixed: nil) if introduced
+
           introduced = if intro_str == "0"
                          Semver.new(0, 0, 0)
                        else
@@ -234,8 +240,13 @@ module Shards::Audit
         version = Semver.parse(version_str)
         next unless version
 
-        opens_window = op.in?(">=", ">", "=", "==")
-        if opens_window && (introduced || fixed)
+        # Constraints inside one window are ANDed, so a repeated bound must
+        # be intersected (keep the tighter one) rather than overwritten. But
+        # a *lower* bound arriving after the window already has an upper
+        # bound starts the next window, which is how a multi-window range is
+        # written: ">= 1.0.0, < 1.1.0, >= 2.0.0, < 2.1.0".
+        lower = op.in?(">=", ">", "=", "==")
+        if lower && fixed
           ranges << SemverRange.new(introduced: introduced, fixed: fixed,
             introduced_exclusive: introduced_exclusive, fixed_inclusive: fixed_inclusive)
           introduced = nil
@@ -245,19 +256,22 @@ module Shards::Audit
         end
 
         case op
-        when ">="
-          introduced = version
-        when ">"
-          introduced = version
-          introduced_exclusive = true
-        when "<"
-          fixed = version
-        when "<="
-          fixed = version
-          fixed_inclusive = true
+        when ">=", ">"
+          exclusive = op == ">"
+          if tighter_lower?(version, exclusive, introduced, introduced_exclusive)
+            introduced = version
+            introduced_exclusive = exclusive
+          end
+        when "<", "<="
+          inclusive = op == "<="
+          if tighter_upper?(version, inclusive, fixed, fixed_inclusive)
+            fixed = version
+            fixed_inclusive = inclusive
+          end
         when "=", "=="
           introduced = version
           fixed = version
+          introduced_exclusive = false
           fixed_inclusive = true
         end
       end
@@ -268,6 +282,26 @@ module Shards::Audit
       end
 
       ranges
+    end
+
+    # A lower bound is tighter when it is higher; at equal versions the
+    # exclusive form is tighter.
+    private def self.tighter_lower?(candidate : Semver, candidate_exclusive : Bool,
+                                    current : Semver?, current_exclusive : Bool) : Bool
+      return true unless current
+      cmp = candidate <=> current
+      return cmp > 0 unless cmp == 0
+      candidate_exclusive && !current_exclusive
+    end
+
+    # An upper bound is tighter when it is lower; at equal versions the
+    # exclusive form is tighter.
+    private def self.tighter_upper?(candidate : Semver, candidate_inclusive : Bool,
+                                    current : Semver?, current_inclusive : Bool) : Bool
+      return true unless current
+      cmp = candidate <=> current
+      return cmp < 0 unless cmp == 0
+      !candidate_inclusive && current_inclusive
     end
   end
 end

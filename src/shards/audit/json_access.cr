@@ -29,8 +29,13 @@ module Shards::Audit
       current
     end
 
+    # Scrubbed because advisory text reaches us verbatim from the network
+    # and JSON::Parser preserves invalid UTF-8 bytes. Handing those to
+    # `to_yaml` aborts the process outright — not a catchable exception, and
+    # the abort status is 1, which is the "vulnerabilities found" code. JSON
+    # and SARIF merely emitted bytes no conforming parser would accept.
     private def dig_s(value : JSON::Any?, *keys : String) : String?
-      dig(value, *keys).try(&.as_s?)
+      dig(value, *keys).try(&.as_s?).try(&.scrub)
     end
 
     private def dig_a(value : JSON::Any?, *keys : String) : Array(JSON::Any)?

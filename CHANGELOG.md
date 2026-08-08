@@ -86,6 +86,49 @@
   advisories that named one (`1.2.3.4`, `2.0.0.RELEASE`).
 - **GitHub's `"score": 0.0` suppressed the vector computation**, reporting a
   9.8 critical with `cvss_score: 0.0`.
+- **A dependency whose version YAML retyped was never scanned.** `YAML::Any`
+  reads an unquoted `version: 1.0` as a float and `commit: 1234567` as an
+  integer, so `as_s?` answered nil for both — and a dependency with neither
+  version nor commit contributes no OSV query at all. shards writes
+  two-component versions unquoted. The lockfile is now read through the YAML
+  node tree, which keeps scalars as written (`1.10` stays `1.10` instead of
+  becoming `1.1`).
+- **An unquoted `expires:` date made a suppression permanent.** The same
+  retyping turned `expires: 2025-12-31` into a Time, `as_s?` returned nil, and
+  the ignore entry silently became one that never expires — without a warning,
+  because the warning only fired for a String that failed to parse. A numeric
+  `id:` was dropped just as silently, and `Time.parse` accepted trailing
+  garbage (`2025-12-31junk`).
+- **A bare path argument was silently discarded.** `shards-audit
+  path/to/shard.lock` scanned `./shard.lock` instead and exited 0, so a CI job
+  got a green pass for a file that was never read. Unexpected positional
+  arguments are now an error pointing at `-p PATH`.
+- **The cache wrote through symlinks.** `get` refused to read through one but
+  `set` did not, so a pre-planted symlink at a cache path made the tool
+  overwrite an arbitrary file, and a symlinked cache directory additionally
+  had its target chmod'ed to 0700. Key sanitisation is also lossy, so two
+  distinct advisory ids could collide on one file and be served each other's
+  data.
+- **Invalid UTF-8 in advisory text aborted `-f yaml`.** `to_yaml` on a string
+  carrying invalid bytes terminates the process — not a catchable exception —
+  with status 1, the "vulnerabilities found" code. JSON and SARIF emitted
+  bytes no conforming parser accepts. Advisory text is now scrubbed at
+  ingestion.
+- **Repeated constraints in a version range overwrote each other.**
+  `"<= 1.0.0, < 2.0.0"` became `<= 2.0.0` because the inclusivity flags were
+  never reset, and `"> 1.0.0, >= 1.5.0, < 2.0.0"` lost its lower bound.
+  Constraints inside one window are now intersected.
+- **Two consecutive OSV `introduced` events dropped the first window.** A
+  version inside it was judged unaffected.
+- **Pagination stopped early on a `Link` header whose URL contains a comma**
+  (the header was split on ","), and on the unquoted `rel=next` form RFC 8288
+  permits. Either way the trailing advisories were dropped silently.
+- **`--path ""` and `--cache-dir ""` were accepted**, the latter scattering
+  cache files through the working directory.
+- **A clean run claimed an unqualified all-clear even when a source never
+  answered.** The table now says so, and `CLI.stderr` and
+  `Shards::Audit.stderr` are one sink instead of two, so redirecting
+  diagnostics actually captures them.
 - **Machine formats printed prose when the lockfile had no dependencies.**
   `shards-audit -f json` wrote "No dependencies found in ./shard.lock." to
   stdout, so a pipeline redirecting it to a file got a document no JSON

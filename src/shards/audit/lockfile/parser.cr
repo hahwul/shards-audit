@@ -36,51 +36,53 @@ module Shards::Audit
       # printed a backtrace and exited 1 — the exit code that means
       # "vulnerabilities found", so a broken lockfile looked like a failed
       # audit to CI instead of a tool error (exit 2).
-      data = begin
-        YAML.parse(content)
+      # Parsed through YAML::Nodes rather than YAML.parse so scalars keep
+      # their *written* text. The core schema types an unquoted `version: 1.0`
+      # as a float and `commit: 1234567` as an integer, and `YAML::Any#as_s?`
+      # then returns nil for both. A dependency with neither version nor
+      # commit contributes no OSV query at all, so it was silently never
+      # checked — and two-component versions are written unquoted by shards.
+      root = begin
+        YamlNodes.document_root(content)
       rescue ex : YAML::ParseException
         raise ParseError.new("Invalid shard.lock YAML: #{ex.message}")
       end
 
-      root = data.as_h?
-      unless root
+      unless root.is_a?(YAML::Nodes::Mapping)
         raise ParseError.new("Invalid shard.lock format: expected a mapping at the top level")
       end
 
-      shards = root["shards"]?
+      shards = YamlNodes.mapping_value(root, "shards")
       unless shards
         raise ParseError.new("Invalid shard.lock format: missing 'shards' key")
       end
 
-      shards_hash = shards.as_h?
-      unless shards_hash
+      unless shards.is_a?(YAML::Nodes::Mapping)
         raise ParseError.new("Invalid shard.lock format: 'shards' must be a mapping")
       end
 
       dependencies = [] of Dependency
       skipped_deps = [] of String
 
-      shards_hash.each do |name, info|
-        dep_name = name.as_s?
+      shards.each do |name_node, info|
+        dep_name = YamlNodes.scalar_value(name_node)
         next unless dep_name
         next if dep_name.empty?
 
-        # A shard entry that is not a mapping (a bare string, a list, null)
-        # used to raise "Expected Array or Hash" straight out of YAML::Any.
-        info_hash = info.as_h?
-        unless info_hash
+        # A shard entry that is not a mapping (a bare string, a list, null).
+        unless info.is_a?(YAML::Nodes::Mapping)
           skipped_deps << dep_name
           next
         end
 
-        git_url = info_hash["git"]?.try(&.as_s?).presence
+        git_url = YamlNodes.scalar_value(YamlNodes.mapping_value(info, "git")).presence
         unless git_url
           skipped_deps << dep_name
           next
         end
 
-        version = info_hash["version"]?.try(&.as_s?)
-        commit = info_hash["commit"]?.try(&.as_s?)
+        version = YamlNodes.scalar_value(YamlNodes.mapping_value(info, "version"))
+        commit = YamlNodes.scalar_value(YamlNodes.mapping_value(info, "commit"))
 
         # Some lockfiles store version as "X.Y.Z+git.commit.HASH"
         if version && version.includes?("+git.commit.")

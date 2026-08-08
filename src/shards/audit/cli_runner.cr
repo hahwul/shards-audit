@@ -7,14 +7,14 @@ module Shards::Audit
       if path && File.exists?(path)
         begin
           cf = ConfigFile.load(path)
-          @@stderr.puts "Loaded config: #{path}" if config.verbose
+          stderr.puts "Loaded config: #{path}" if config.verbose
 
           # Merge ignore entries (active only)
           cf.ignore.each do |entry|
             if entry.active?
               config.ignore_ids << entry.id unless config.ignore_ids.includes?(entry.id)
             else
-              @@stderr.puts "Warning: Ignore entry #{entry.id} has expired (#{entry.expires})" if config.verbose
+              stderr.puts "Warning: Ignore entry #{entry.id} has expired (#{entry.expires})" if config.verbose
             end
           end
 
@@ -23,10 +23,10 @@ module Shards::Audit
             config.severity_threshold = cf.severity_threshold
           end
         rescue ex : YAML::ParseException | IO::Error
-          @@stderr.puts "Warning: Failed to load config file #{path}: #{ex.message}"
+          stderr.puts "Warning: Failed to load config file #{path}: #{ex.message}"
         end
       elsif config_path
-        @@stderr.puts "Warning: Config file not found: #{config_path}"
+        stderr.puts "Warning: Config file not found: #{config_path}"
       end
     end
 
@@ -37,7 +37,7 @@ module Shards::Audit
       parse_result = begin
         LockfileParser.parse(config.lockfile_path)
       rescue ex : LockfileParser::ParseError
-        @@stderr.puts "Error: #{ex.message}"
+        stderr.puts "Error: #{ex.message}"
         return EXIT_ERROR
       end
 
@@ -59,9 +59,9 @@ module Shards::Audit
       if config.verbose
         skipped = parse_result.skipped_deps
         unless skipped.empty?
-          @@stderr.puts "Skipped #{skipped.size} non-git dependencies: #{skipped.join(", ")}"
+          stderr.puts "Skipped #{skipped.size} non-git dependencies: #{skipped.join(", ")}"
         end
-        @@stderr.puts "Scanning #{dependencies.size} dependencies..."
+        stderr.puts "Scanning #{dependencies.size} dependencies..."
       end
 
       # Run scan
@@ -70,14 +70,14 @@ module Shards::Audit
 
       # Check if all sources failed
       if result.errors.size >= Scanner::SOURCE_COUNT && result.vulnerabilities.empty?
-        @@stderr.puts "Error: All vulnerability sources failed."
-        result.errors.each { |e| @@stderr.puts "  - #{e}" }
-        @@stderr.puts
-        @@stderr.puts "Suggestions:"
-        @@stderr.puts "  - Check your network connection"
-        @@stderr.puts "  - If behind a proxy, ensure HTTP_PROXY/HTTPS_PROXY are set"
-        @@stderr.puts "  - Set --github-token or GITHUB_TOKEN for GitHub API access"
-        @@stderr.puts "  - Run with --verbose for more details"
+        stderr.puts "Error: All vulnerability sources failed."
+        result.errors.each { |e| stderr.puts "  - #{e}" }
+        stderr.puts
+        stderr.puts "Suggestions:"
+        stderr.puts "  - Check your network connection"
+        stderr.puts "  - If behind a proxy, ensure HTTP_PROXY/HTTPS_PROXY are set"
+        stderr.puts "  - Set --github-token or GITHUB_TOKEN for GitHub API access"
+        stderr.puts "  - Run with --verbose for more details"
         return EXIT_ERROR
       end
 

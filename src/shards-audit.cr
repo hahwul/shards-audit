@@ -1,5 +1,6 @@
 require "./shards/audit/version"
 require "./shards/audit/json_access"
+require "./shards/audit/yaml_nodes"
 require "./shards/audit/semver"
 require "./shards/audit/config"
 require "./shards/audit/config_file"

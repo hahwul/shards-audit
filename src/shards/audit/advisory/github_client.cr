@@ -191,21 +191,34 @@ module Shards::Audit
       end
     end
 
+    # One `<uri>; params` entry of an RFC 8288 Link header. Capturing the URI
+    # with `[^>]+` lets it contain commas, and the parameter run stops at the
+    # next `<`.
+    #
+    # Splitting the header on "," broke on a URI that itself contains one
+    # (`?affects=a,b`), and requiring the quoted form missed `rel=next`, which
+    # RFC 8288 permits. Either way pagination stopped early and the trailing
+    # advisories were dropped without a word — silent under-reporting.
+    LINK_ENTRY_PATTERN = /<([^>]+)>([^<]*)/
+    LINK_REL_NEXT      = /(?:\A|[;,\s])rel\s*=\s*"?next"?/i
+
     private def parse_next_link(link_header : String?) : String?
       return unless link_header
-      link_header.split(',').each do |part|
-        if part.includes?("rel=\"next\"")
-          if match = part.match(/<([^>]+)>/)
-            begin
-              uri = URI.parse(match[1])
-              return "#{uri.path}?#{uri.query}" if uri.query
-              return uri.path
-            rescue URI::Error
-              next
-            end
-          end
+
+      link_header.scan(LINK_ENTRY_PATTERN) do |match|
+        next unless match[2].matches?(LINK_REL_NEXT)
+        begin
+          uri = URI.parse(match[1])
+        rescue URI::Error
+          next
         end
+        # Only the path and query are reused; the request always goes back to
+        # @api_base, so a Link header cannot redirect us to another host.
+        path = uri.path
+        next unless path.starts_with?('/')
+        return uri.query ? "#{path}?#{uri.query}" : path
       end
+
       nil
     end
 

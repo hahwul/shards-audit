@@ -45,40 +45,58 @@ module Shards::Audit
       nil
     end
 
+    EXPIRES_PATTERN = /\A\d{4}-\d{2}-\d{2}\z/
+
     def self.load(path : String) : ConfigFile
       content = File.read(path)
-      yaml = YAML.parse(content)
 
-      # `YAML::Any#[]?` raises on a non-mapping receiver, so a config file
-      # that is empty, a bare scalar, or a top-level list must be rejected
-      # by shape rather than indexed into.
-      root = yaml.as_h? || return new
+      # Read through the node tree, not YAML::Any. The core schema turns an
+      # unquoted `expires: 2025-12-31` into a Time and `id: 12345` into an
+      # Int, and `as_s?` then answers nil for both — so an unquoted expiry
+      # date silently produced an ignore entry that never expires, and a
+      # numeric id was dropped without a word. Neither warned, because the
+      # warning only fired for a String that failed to parse.
+      root = YamlNodes.document_root(content)
+      return new unless root.is_a?(YAML::Nodes::Mapping)
 
       ignore = [] of IgnoreEntry
-      if ignore_list = root["ignore"]?.try(&.as_a?)
-        ignore_list.each do |entry|
-          entry_hash = entry.as_h? || next
-          id = entry_hash["id"]?.try(&.as_s?) || next
-          reason = entry_hash["reason"]?.try(&.as_s?)
-          expires = nil
-          if exp_str = entry_hash["expires"]?.try(&.as_s?)
-            begin
-              expires = Time.parse(exp_str, "%Y-%m-%d", Time::Location::UTC)
-            rescue
-              Shards::Audit.stderr.puts "Warning: Invalid expires date '#{exp_str}' for ignore entry #{id}, ignoring expiry"
-            end
-          end
-          ignore << IgnoreEntry.new(id: id, reason: reason, expires: expires)
+      YamlNodes.sequence_items(YamlNodes.mapping_value(root, "ignore")).each do |entry|
+        next unless entry.is_a?(YAML::Nodes::Mapping)
+        id = YamlNodes.scalar_value(YamlNodes.mapping_value(entry, "id")).presence
+        unless id
+          Shards::Audit.stderr.puts "Warning: Ignoring config entry without an 'id'"
+          next
         end
+        reason = YamlNodes.scalar_value(YamlNodes.mapping_value(entry, "reason"))
+        expires = parse_expires(YamlNodes.scalar_value(YamlNodes.mapping_value(entry, "expires")), id)
+        ignore << IgnoreEntry.new(id: id, reason: reason, expires: expires)
       end
 
       severity_threshold = nil
-      if sev_str = root["severity_threshold"]?.try(&.as_s?)
+      if sev_str = YamlNodes.scalar_value(YamlNodes.mapping_value(root, "severity_threshold")).presence
         sev = Severity.from_string(sev_str)
-        severity_threshold = sev unless sev.unknown?
+        if sev.unknown?
+          Shards::Audit.stderr.puts "Warning: Unknown severity_threshold '#{sev_str}' in config, ignoring"
+        else
+          severity_threshold = sev
+        end
       end
 
       new(ignore: ignore, severity_threshold: severity_threshold)
+    end
+
+    # `Time.parse` happily consumes a prefix, so "2025-12-31junk" parsed as
+    # 2025-12-31 without complaint. Require the whole value to be a date.
+    private def self.parse_expires(value : String?, id : String) : Time?
+      return unless value = value.presence
+      unless value.matches?(EXPIRES_PATTERN)
+        Shards::Audit.stderr.puts "Warning: Invalid expires date '#{value}' for ignore entry #{id}, ignoring expiry"
+        return
+      end
+      Time.parse(value, "%Y-%m-%d", Time::Location::UTC)
+    rescue
+      Shards::Audit.stderr.puts "Warning: Invalid expires date '#{value}' for ignore entry #{id}, ignoring expiry"
+      nil
     end
   end
 end

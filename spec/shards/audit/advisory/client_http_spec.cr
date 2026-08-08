@@ -134,7 +134,7 @@ describe Shards::Audit::GithubClient do
     it "follows Link rel=next and merges pages" do
       handler = ApiHandler.new do |ctx, requests|
         if requests.size == 1
-          ctx.response.headers["Link"] = %(<#{ctx.request.headers["Host"]?}/advisories?page=2>; rel="next")
+          ctx.response.headers["Link"] = %(<https://api.github.com/advisories?page=2>; rel="next")
           ctx.response.status_code = 200
           ctx.response.print %([{"ghsa_id":"GHSA-1"}])
         else

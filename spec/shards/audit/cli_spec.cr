@@ -6,7 +6,7 @@ private def run_cli(args : Array(String)) : Int32
   Shards::Audit::CLI.run(args)
 ensure
   Shards::Audit::CLI.stdout = STDOUT
-  Shards::Audit::CLI.stderr = STDERR
+  Shards::Audit::CLI.stderr = SPEC_STDERR
 end
 
 describe Shards::Audit::CLI do
