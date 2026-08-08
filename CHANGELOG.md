@@ -86,6 +86,13 @@
   advisories that named one (`1.2.3.4`, `2.0.0.RELEASE`).
 - **GitHub's `"score": 0.0` suppressed the vector computation**, reporting a
   9.8 critical with `cvss_score: 0.0`.
+- **Deduplication discarded the richer of two reports.** OSV results are
+  concatenated ahead of GitHub's and the first record won, so a sparse OSV
+  entry threw away GitHub's severity, summary, CVSS score and fix version for
+  the same GHSA — the finding was displayed as UNKNOWN with no description and
+  no remediation. Duplicates are now merged field by field, severity is
+  resolved toward the higher rating so combining sources can never downgrade a
+  finding, and the report names both sources.
 - **A multi-window GitHub version range collapsed to its last window.**
   `">= 1.0.0, < 1.1.0, >= 2.0.0, < 2.1.0"` kept only `>= 2.0.0, < 2.1.0`, so a
   user on 1.0.5 — squarely inside the first window — was reported as not

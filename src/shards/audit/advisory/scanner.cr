@@ -87,18 +87,31 @@ module Shards::Audit
     # Collapses findings that the two sources reported for the same
     # dependency, then returns them in a stable, total order.
     def deduplicate(vulnerabilities : Array(Vulnerability)) : Array(Vulnerability)
-      seen_ids = Set(String).new
       unique = [] of Vulnerability
+      # dependency-scoped advisory id => index into `unique`
+      positions = Hash(String, Int32).new
 
       vulnerabilities.each do |vuln|
-        ids = vuln.all_ids
-        dep_ids = ids.map { |id| "#{vuln.dependency_name}:#{id}" }
+        keys = vuln.all_ids.map { |id| "#{vuln.dependency_name}:#{id}" }
+        existing = keys.each do |key|
+          if index = positions[key]?
+            break index
+          end
+        end
 
-        # Skip if any of this vulnerability's IDs (scoped to dep) were already seen
-        next if dep_ids.any? { |did| seen_ids.includes?(did) }
-
-        dep_ids.each { |did| seen_ids << did }
-        unique << vuln
+        if existing.is_a?(Int32)
+          # Combine rather than drop. Discarding the later record threw away
+          # whichever source happened to know the summary, the fix version or
+          # the severity.
+          unique[existing] = unique[existing].merge(vuln)
+          # Merging can pull in new aliases, which must also resolve here.
+          unique[existing].all_ids.each do |id|
+            positions["#{unique[existing].dependency_name}:#{id}"] = existing
+          end
+        else
+          unique << vuln
+          keys.each { |key| positions[key] = unique.size - 1 }
+        end
       end
 
       # Severity first, then a total tiebreak on (dependency, id). Crystal's

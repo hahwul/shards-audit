@@ -176,6 +176,100 @@ describe Shards::Audit::OsvParser do
   end
 end
 
+describe Shards::Audit::Scanner do
+  scanner = Shards::Audit::Scanner.new(Shards::Audit::Config.new)
+
+  describe "combining the same advisory from both sources" do
+    # OSV is concatenated ahead of GitHub, and dedup kept whichever record
+    # came first — so a sparse OSV entry discarded GitHub's severity,
+    # summary and fix version for the very same GHSA.
+    it "keeps the richer fields from either source" do
+      osv = Shards::Audit::Vulnerability.new(id: "GHSA-1", dependency_name: "d",
+        source: "OSV", severity: Shards::Audit::Severity::Unknown, summary: "")
+      github = Shards::Audit::Vulnerability.new(id: "GHSA-1", dependency_name: "d",
+        source: "GitHub", severity: Shards::Audit::Severity::Critical,
+        summary: "Remote code execution", cvss_score: 9.8, fixed_version: "1.2.3")
+
+      merged = scanner.deduplicate([osv, github])
+      merged.size.should eq(1)
+      merged[0].severity.should eq(Shards::Audit::Severity::Critical)
+      merged[0].cvss_score.should eq(9.8)
+      merged[0].summary.should eq("Remote code execution")
+      merged[0].fixed_version.should eq("1.2.3")
+      merged[0].source.should eq("OSV, GitHub")
+    end
+
+    it "never downgrades a severity" do
+      low = Shards::Audit::Vulnerability.new(id: "GHSA-1", dependency_name: "d",
+        source: "OSV", severity: Shards::Audit::Severity::Low, cvss_score: 2.0)
+      high = Shards::Audit::Vulnerability.new(id: "GHSA-1", dependency_name: "d",
+        source: "GitHub", severity: Shards::Audit::Severity::High, cvss_score: 8.1)
+
+      scanner.deduplicate([low, high])[0].severity.should eq(Shards::Audit::Severity::High)
+      scanner.deduplicate([high, low])[0].severity.should eq(Shards::Audit::Severity::High)
+    end
+
+    it "keeps severity and its score consistent" do
+      merged = scanner.deduplicate([
+        Shards::Audit::Vulnerability.new(id: "GHSA-1", dependency_name: "d",
+          source: "OSV", severity: Shards::Audit::Severity::Low, cvss_score: 2.0),
+        Shards::Audit::Vulnerability.new(id: "GHSA-1", dependency_name: "d",
+          source: "GitHub", severity: Shards::Audit::Severity::High, cvss_score: 8.1),
+      ])
+      merged[0].severity.should eq(Shards::Audit::Severity::High)
+      merged[0].cvss_score.should eq(8.1)
+    end
+
+    it "merges records linked only by an alias" do
+      a = Shards::Audit::Vulnerability.new(id: "GHSA-x", aliases: ["CVE-2024-1"],
+        dependency_name: "d", severity: Shards::Audit::Severity::High)
+      b = Shards::Audit::Vulnerability.new(id: "CVE-2024-1", dependency_name: "d",
+        severity: Shards::Audit::Severity::Critical, fixed_version: "2.0.0")
+
+      merged = scanner.deduplicate([a, b])
+      merged.size.should eq(1)
+      merged[0].severity.should eq(Shards::Audit::Severity::Critical)
+      merged[0].fixed_version.should eq("2.0.0")
+    end
+
+    it "does not merge across different dependencies" do
+      a = Shards::Audit::Vulnerability.new(id: "GHSA-1", dependency_name: "one")
+      b = Shards::Audit::Vulnerability.new(id: "GHSA-1", dependency_name: "two")
+      scanner.deduplicate([a, b]).size.should eq(2)
+    end
+
+    describe "affected ranges" do
+      it "stays conservative when either side could not be evaluated" do
+        bounded = Shards::Audit::Vulnerability.new(id: "GHSA-1", dependency_name: "d",
+          affected_ranges: [Shards::Audit::SemverRange.new(
+            introduced: Shards::Audit::Semver.parse("1.0.0"),
+            fixed: Shards::Audit::Semver.parse("1.1.0"))])
+        unbounded = Shards::Audit::Vulnerability.new(id: "GHSA-1", dependency_name: "d")
+
+        merged = scanner.deduplicate([bounded, unbounded])[0]
+        merged.affected_ranges.should be_empty
+        merged.affected?("9.9.9").should be_true
+      end
+
+      it "unions the windows when both sides are evaluable" do
+        a = Shards::Audit::Vulnerability.new(id: "GHSA-1", dependency_name: "d",
+          affected_ranges: [Shards::Audit::SemverRange.new(
+            introduced: Shards::Audit::Semver.parse("1.0.0"),
+            fixed: Shards::Audit::Semver.parse("1.1.0"))])
+        b = Shards::Audit::Vulnerability.new(id: "GHSA-1", dependency_name: "d",
+          affected_ranges: [Shards::Audit::SemverRange.new(
+            introduced: Shards::Audit::Semver.parse("2.0.0"),
+            fixed: Shards::Audit::Semver.parse("2.1.0"))])
+
+        merged = scanner.deduplicate([a, b])[0]
+        merged.affected?("1.0.5").should be_true
+        merged.affected?("2.0.5").should be_true
+        merged.affected?("1.5.0").should be_false
+      end
+    end
+  end
+end
+
 describe Shards::Audit::SemverRangeParser do
   describe "GitHub vulnerable_version_range with several windows" do
     # A single introduced/fixed accumulator kept only the last window, so a
