@@ -86,6 +86,13 @@
   advisories that named one (`1.2.3.4`, `2.0.0.RELEASE`).
 - **GitHub's `"score": 0.0` suppressed the vector computation**, reporting a
   9.8 critical with `cvss_score: 0.0`.
+- **A multi-window GitHub version range collapsed to its last window.**
+  `">= 1.0.0, < 1.1.0, >= 2.0.0, < 2.1.0"` kept only `>= 2.0.0, < 2.1.0`, so a
+  user on 1.0.5 — squarely inside the first window — was reported as not
+  affected. A false negative, the failure mode the tool exists to prevent.
+- **Constraints written without a space were dropped.** `">=1.0.0, <1.2.0"`
+  parsed to no ranges at all, disabling version filtering for that advisory.
+  A bare version with no operator is now read as an exact match.
 - **The OSV querybatch was never chunked.** OSV caps a request at 1000
   queries, so a large lockfile silently exceeded the cap and failed the whole
   source. Queries are now split into batches of 500.

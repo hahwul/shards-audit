@@ -176,6 +176,87 @@ describe Shards::Audit::OsvParser do
   end
 end
 
+describe Shards::Audit::SemverRangeParser do
+  describe "GitHub vulnerable_version_range with several windows" do
+    # A single introduced/fixed accumulator kept only the last window, so a
+    # version inside an earlier one was judged unaffected — a false negative.
+    it "keeps every window" do
+      ranges = Shards::Audit::SemverRangeParser.parse_github_range(
+        ">= 1.0.0, < 1.1.0, >= 2.0.0, < 2.1.0")
+      ranges.map(&.to_constraint).should eq([">=1.0.0 <1.1.0", ">=2.0.0 <2.1.0"])
+    end
+
+    it "reports a version inside the first window" do
+      vuln = Shards::Audit::Vulnerability.new(id: "GHSA-1",
+        affected_ranges: Shards::Audit::SemverRangeParser.parse_github_range(
+          ">= 1.0.0, < 1.1.0, >= 2.0.0, < 2.1.0"))
+      vuln.affected?("1.0.5").should be_true
+      vuln.affected?("2.0.5").should be_true
+      vuln.affected?("1.5.0").should be_false
+      vuln.affected?("3.0.0").should be_false
+    end
+  end
+
+  describe "constraints written without a space" do
+    # `split(/\s+/, 2)` produced one part and the constraint was dropped, so
+    # the advisory ended up with no ranges and filtering did nothing.
+    it "parses >=1.0.0, <1.2.0" do
+      Shards::Audit::SemverRangeParser.parse_github_range(">=1.0.0, <1.2.0")
+        .map(&.to_constraint).should eq([">=1.0.0 <1.2.0"])
+    end
+
+    it "filters correctly with no-space constraints" do
+      vuln = Shards::Audit::Vulnerability.new(id: "GHSA-1",
+        affected_ranges: Shards::Audit::SemverRangeParser.parse_github_range(">=1.0.0, <1.2.0"))
+      vuln.affected?("1.1.0").should be_true
+      vuln.affected?("1.3.0").should be_false
+    end
+  end
+
+  describe "other constraint shapes" do
+    it "treats a bare version as exact" do
+      Shards::Audit::SemverRangeParser.parse_github_range("1.2.3")
+        .map(&.to_constraint).should eq([">=1.2.3 <=1.2.3"])
+    end
+
+    it "handles = and ==" do
+      Shards::Audit::SemverRangeParser.parse_github_range("= 1.2.3")
+        .map(&.to_constraint).should eq([">=1.2.3 <=1.2.3"])
+      Shards::Audit::SemverRangeParser.parse_github_range("== 1.2.3")
+        .map(&.to_constraint).should eq([">=1.2.3 <=1.2.3"])
+    end
+
+    it "keeps single-sided bounds" do
+      Shards::Audit::SemverRangeParser.parse_github_range("< 1.2.0")
+        .map(&.to_constraint).should eq(["<1.2.0"])
+      Shards::Audit::SemverRangeParser.parse_github_range(">= 1.0.0")
+        .map(&.to_constraint).should eq([">=1.0.0"])
+      Shards::Audit::SemverRangeParser.parse_github_range("<= 1.2.0")
+        .map(&.to_constraint).should eq(["<=1.2.0"])
+    end
+
+    it "returns nothing for empty or unparseable input" do
+      Shards::Audit::SemverRangeParser.parse_github_range("").should be_empty
+      Shards::Audit::SemverRangeParser.parse_github_range("   ").should be_empty
+      Shards::Audit::SemverRangeParser.parse_github_range("~> 1.2").should be_empty
+    end
+
+    it "keeps a prerelease lower bound" do
+      Shards::Audit::SemverRangeParser.parse_github_range(">= 1.0.0-beta, < 1.0.0")
+        .map(&.to_constraint).should eq([">=1.0.0-beta <1.0.0"])
+    end
+
+    # The advisory says the fix landed in 2.0.0; a release candidate predates
+    # it and therefore does not carry the fix.
+    it "still reports a release candidate below the fixed version" do
+      vuln = Shards::Audit::Vulnerability.new(id: "GHSA-1",
+        affected_ranges: Shards::Audit::SemverRangeParser.parse_github_range("< 2.0.0"))
+      vuln.affected?("2.0.0-rc1").should be_true
+      vuln.affected?("2.0.0").should be_false
+    end
+  end
+end
+
 describe Shards::Audit::GithubParser do
   describe "a zero cvss score" do
     # GitHub ships `"score": 0.0` alongside a real vector for some

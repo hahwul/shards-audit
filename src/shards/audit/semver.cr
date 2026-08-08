@@ -195,46 +195,79 @@ module Shards::Audit
       ranges
     end
 
-    def self.parse_github_range(range_str : String) : Array(SemverRange)
-      return [] of SemverRange if range_str.strip.empty?
+    # Matches one constraint of a GitHub `vulnerable_version_range`.
+    #
+    # The separating whitespace is optional: GitHub normally writes
+    # ">= 1.0.0, < 1.2.0", but a `constraint.split(/\s+/, 2)` parse dropped
+    # every constraint written without a space (">=1.0.0, <1.2.0"), leaving
+    # the advisory with no ranges at all and version filtering disabled.
+    GITHUB_CONSTRAINT_PATTERN = /\A(>=|<=|==|=|>|<)\s*(\S+)\z/
 
-      constraints = range_str.split(',').map(&.strip).reject(&.empty?)
+    # Parses a GitHub `vulnerable_version_range` into one or more windows.
+    #
+    # A single accumulator pair (introduced/fixed) silently collapsed a
+    # multi-window range: ">= 1.0.0, < 1.1.0, >= 2.0.0, < 2.1.0" kept only
+    # the last window, so a user on 1.0.5 — squarely inside the first — was
+    # judged unaffected. That is a false negative, the failure mode this tool
+    # exists to prevent. A lower bound that arrives when a window is already
+    # open now closes that window and starts the next.
+    def self.parse_github_range(range_str : String) : Array(SemverRange)
+      return [] of SemverRange if range_str.blank?
+
+      ranges = [] of SemverRange
       introduced : Semver? = nil
       fixed : Semver? = nil
-
       introduced_exclusive = false
       fixed_inclusive = false
 
-      constraints.each do |constraint|
-        parts = constraint.split(/\s+/, 2)
-        next if parts.size != 2
+      range_str.split(',') do |raw|
+        constraint = raw.strip
+        next if constraint.empty?
 
-        op = parts[0]
-        ver = Semver.parse(parts[1])
-        next unless ver
+        if match = GITHUB_CONSTRAINT_PATTERN.match(constraint)
+          op, version_str = match[1], match[2]
+        else
+          # A bare version with no operator denotes that exact version.
+          op, version_str = "=", constraint
+        end
+
+        version = Semver.parse(version_str)
+        next unless version
+
+        opens_window = op.in?(">=", ">", "=", "==")
+        if opens_window && (introduced || fixed)
+          ranges << SemverRange.new(introduced: introduced, fixed: fixed,
+            introduced_exclusive: introduced_exclusive, fixed_inclusive: fixed_inclusive)
+          introduced = nil
+          fixed = nil
+          introduced_exclusive = false
+          fixed_inclusive = false
+        end
 
         case op
         when ">="
-          introduced = ver
+          introduced = version
         when ">"
-          introduced = ver
+          introduced = version
           introduced_exclusive = true
         when "<"
-          fixed = ver
+          fixed = version
         when "<="
-          fixed = ver
+          fixed = version
           fixed_inclusive = true
-        when "="
-          introduced = ver
-          fixed = ver
+        when "=", "=="
+          introduced = version
+          fixed = version
           fixed_inclusive = true
         end
       end
 
-      # If we only got a lower bound, it means still vulnerable
-      return [] of SemverRange unless introduced || fixed
-      [SemverRange.new(introduced: introduced, fixed: fixed,
-        introduced_exclusive: introduced_exclusive, fixed_inclusive: fixed_inclusive)]
+      if introduced || fixed
+        ranges << SemverRange.new(introduced: introduced, fixed: fixed,
+          introduced_exclusive: introduced_exclusive, fixed_inclusive: fixed_inclusive)
+      end
+
+      ranges
     end
   end
 end
