@@ -47,6 +47,15 @@ module Shards::Audit
         end
       end
 
+      # The builder drops an empty results array, leaving a run with only a
+      # `tool` key. GitHub Code Scanning treats `runs[].results[]` as
+      # required, so a clean audit produced an upload it could reject — and
+      # an upload with no results array is what *clears* previously reported
+      # alerts. Without it, a vulnerability stays flagged after it is fixed.
+      log.runs.each do |run|
+        run.results ||= [] of Sarif::Result
+      end
+
       io.puts log.to_pretty_json
     end
 

@@ -127,6 +127,17 @@ describe Shards::Audit::SarifFormatter do
       .as_s.should eq("shard.lock")
   end
 
+  # The builder drops an empty results array, leaving a run with only a
+  # `tool` key. GitHub Code Scanning treats results as required, and an
+  # upload carrying an empty results array is what *clears* alerts that were
+  # reported previously — without it a fixed vulnerability stays flagged.
+  it "emits an empty results array for a clean scan" do
+    io = IO::Memory.new
+    Shards::Audit::SarifFormatter.new.format(Shards::Audit::AuditResult.new, io)
+    run = JSON.parse(io.to_s)["runs"][0]
+    run["results"].as_a.should be_empty
+  end
+
   it "defaults to shard.lock" do
     io = IO::Memory.new
     Shards::Audit::SarifFormatter.new.format(result_with(vuln), io)

@@ -44,7 +44,15 @@ module Shards::Audit
       dependencies = parse_result.dependencies
 
       if dependencies.empty?
-        @@stdout.puts "No dependencies found in #{config.lockfile_path}."
+        # A machine format must still produce a parseable document. Printing
+        # this sentence on stdout regardless of --format meant
+        # `shards-audit -f json > out.json` wrote prose where a pipeline
+        # expected JSON, and the next step in the CI job failed on it.
+        if config.format.table?
+          @@stdout.puts "No dependencies found in #{config.lockfile_path}."
+        else
+          emit_report(config, AuditResult.new)
+        end
         return EXIT_CLEAN
       end
 
@@ -73,7 +81,13 @@ module Shards::Audit
         return EXIT_ERROR
       end
 
-      # Format output
+      emit_report(config, result)
+
+      return EXIT_CLEAN if config.exit_zero
+      result.clean? ? EXIT_CLEAN : EXIT_VULNS
+    end
+
+    private def self.emit_report(config : Config, result : AuditResult) : Nil
       case config.format
       in OutputFormat::Table
         TableFormatter.new(no_color: config.no_color).format(result, @@stdout)
@@ -86,9 +100,6 @@ module Shards::Audit
       in OutputFormat::Sarif
         SarifFormatter.new(config.lockfile_path).format(result, @@stdout)
       end
-
-      return EXIT_CLEAN if config.exit_zero
-      result.clean? ? EXIT_CLEAN : EXIT_VULNS
     end
   end
 end

@@ -86,6 +86,15 @@
   advisories that named one (`1.2.3.4`, `2.0.0.RELEASE`).
 - **GitHub's `"score": 0.0` suppressed the vector computation**, reporting a
   9.8 critical with `cvss_score: 0.0`.
+- **Machine formats printed prose when the lockfile had no dependencies.**
+  `shards-audit -f json` wrote "No dependencies found in ./shard.lock." to
+  stdout, so a pipeline redirecting it to a file got a document no JSON
+  parser accepts. All non-table formats now emit an empty but valid report;
+  the table keeps the human message.
+- **A clean SARIF run omitted `results` entirely.** GitHub Code Scanning
+  treats `runs[].results[]` as required, and an upload carrying an empty
+  results array is what clears alerts reported by an earlier run — so a fixed
+  vulnerability stayed flagged.
 - **Deduplication discarded the richer of two reports.** OSV results are
   concatenated ahead of GitHub's and the first record won, so a sparse OSV
   entry threw away GitHub's severity, summary, CVSS score and fix version for

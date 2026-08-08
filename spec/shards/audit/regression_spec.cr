@@ -208,6 +208,39 @@ describe Shards::Audit::CLI do
   end
 end
 
+describe "machine formats with no dependencies" do
+  # The "No dependencies found" sentence used to go to stdout whatever the
+  # format, so `shards-audit -f json > out.json` wrote prose where the next
+  # CI step expected JSON.
+  empty_lock = File.join(FIXTURES_PATH, "shard.lock.empty")
+
+  it "emits parseable JSON" do
+    exit_code, stdout, _ = run_cli_capture(["--path", empty_lock, "--no-config", "-f", "json"])
+    exit_code.should eq(Shards::Audit::CLI::EXIT_CLEAN)
+    JSON.parse(stdout)["dependencies_scanned"].as_i.should eq(0)
+  end
+
+  it "emits parseable YAML" do
+    _, stdout, _ = run_cli_capture(["--path", empty_lock, "--no-config", "-f", "yaml"])
+    YAML.parse(stdout)["dependencies_scanned"].as_i.should eq(0)
+  end
+
+  it "emits SARIF carrying a results array" do
+    _, stdout, _ = run_cli_capture(["--path", empty_lock, "--no-config", "-f", "sarif"])
+    JSON.parse(stdout)["runs"][0]["results"].as_a.should be_empty
+  end
+
+  it "emits TOML" do
+    _, stdout, _ = run_cli_capture(["--path", empty_lock, "--no-config", "-f", "toml"])
+    stdout.should contain("dependencies_scanned = 0")
+  end
+
+  it "keeps the human message for the table format" do
+    _, stdout, _ = run_cli_capture(["--path", empty_lock, "--no-config"])
+    stdout.should contain("No dependencies found")
+  end
+end
+
 describe Shards::Audit::ConfigFile do
   describe "ignore expiry" do
     it "stays active through the whole of the expiry date" do
