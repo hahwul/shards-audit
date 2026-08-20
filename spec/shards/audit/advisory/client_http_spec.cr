@@ -238,7 +238,7 @@ describe Shards::Audit::GithubClient do
         with_api(handler) do |api|
           client = Shards::Audit::GithubClient.new(timeout: 5, api_base: api.base, cache: cache)
           client.scan(github_deps("one")).should be_empty
-          cache.get("github/o/one.json").should be_nil
+          cache.get("github/repo-advisories/o/one.json").should be_nil
         end
       ensure
         FileUtils.rm_rf(cache_dir)
@@ -258,7 +258,7 @@ describe Shards::Audit::GithubClient do
         with_api(handler) do |api|
           client = Shards::Audit::GithubClient.new(timeout: 5, api_base: api.base, cache: cache)
           client.scan(github_deps("one")).size.should eq(1)
-          cache.get("github/o/one.json").should_not be_nil
+          cache.get("github/repo-advisories/o/one.json").should_not be_nil
         end
       ensure
         FileUtils.rm_rf(cache_dir)

@@ -62,13 +62,18 @@ describe "CLI Runner integration" do
       parsed["dependencies_scanned"].as_i.should eq(3)
     end
 
+    # Deliberately runs against the empty lockfile: the assertion is about
+    # the alias selecting the YAML formatter, and pointing it at a lockfile
+    # with real dependencies made the exit code depend on whether the
+    # advisory APIs answered.
     it "accepts yml as alias for yaml" do
-      exit_code, _, _ = run_cli_capture([
-        "--path", File.join(FIXTURES_PATH, "shard.lock.basic"),
+      exit_code, stdout, _ = run_cli_capture([
+        "--path", File.join(FIXTURES_PATH, "shard.lock.empty"),
         "--format", "yml",
         "--no-cache",
       ])
       exit_code.should eq(Shards::Audit::CLI::EXIT_CLEAN)
+      YAML.parse(stdout)["dependencies_scanned"].as_i.should eq(0)
     end
 
     it "outputs TOML with --format toml" do

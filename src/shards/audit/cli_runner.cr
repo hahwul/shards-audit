@@ -83,8 +83,27 @@ module Shards::Audit
 
       emit_report(config, result)
 
+      code = exit_code_for(config, result)
+      if code == EXIT_ERROR
+        stderr.puts "Error: the audit was incomplete, so no result can be reported."
+        result.errors.each { |e| stderr.puts "  - #{e}" }
+        stderr.puts "Use --exit-zero to ignore this."
+      end
+      code
+    end
+
+    # How a completed scan maps to a process exit code.
+    #
+    # A clean result with errors is the interesting case: "no vulnerabilities
+    # found" is a claim, and a source that never answered means we cannot
+    # make it. Only a *total* failure used to exit non-zero, so a spent
+    # GitHub quota — or an OSV outage for a lockfile with no GitHub remotes
+    # at all — printed the all-clear and exited 0. CI read that as an
+    # audited, clean tree.
+    def self.exit_code_for(config : Config, result : AuditResult) : Int32
       return EXIT_CLEAN if config.exit_zero
-      result.clean? ? EXIT_CLEAN : EXIT_VULNS
+      return EXIT_VULNS unless result.clean?
+      result.errors.empty? ? EXIT_CLEAN : EXIT_ERROR
     end
 
     private def self.emit_report(config : Config, result : AuditResult) : Nil

@@ -8,6 +8,13 @@ module Shards::Audit
   class OsvResponseError < Exception
   end
 
+  # Raised when a single `/v1/vulns/{id}` lookup could not be completed.
+  # `fetch_vulnerability` used to answer nil for both "the request failed"
+  # and "there is nothing to report", so a source that never answered was
+  # indistinguishable from a clean scan.
+  class OsvLookupError < Exception
+  end
+
   class OsvClient
     include HttpRetry
     include HttpClient
@@ -158,12 +165,17 @@ module Shards::Audit
       parse_vulnerability(response)
     rescue ex : IO::Error | Socket::ConnectError | JSON::ParseException | TypeCastError | AdvisoryRequestError
       log("Failed to fetch vulnerability #{vuln_id}: #{ex.message}")
-      nil
+      raise OsvLookupError.new("#{vuln_id}: #{ex.message || ex.class.name}")
     end
 
     MAX_CONCURRENCY = 10
 
+    # Distinct failure reasons seen during the last `scan`. Mirrors
+    # `GithubClient#errors`; see the note there.
+    getter errors : Array(String) = [] of String
+
     def scan(dependencies : Array(Dependency)) : Array(Vulnerability)
+      @errors.clear
       return [] of Vulnerability if dependencies.empty?
 
       vuln_ids_by_dep = query_batch(dependencies)
@@ -175,7 +187,8 @@ module Shards::Audit
 
       # Fetch each unique vulnerability once in parallel
       fetched = Hash(String, Vulnerability?).new
-      channel = Channel({String, Vulnerability?}).new(MAX_CONCURRENCY)
+      failures = 0
+      channel = Channel({String, Vulnerability?, String?}).new(MAX_CONCURRENCY)
 
       unique_vuln_ids.each_slice(MAX_CONCURRENCY) do |batch|
         batch.each do |vuln_id|
@@ -183,20 +196,34 @@ module Shards::Audit
             # See GithubClient#scan: a fiber that raises before sending
             # leaves `channel.receive` waiting forever, so guarantee a send.
             vuln = nil
+            failure : String? = nil
             begin
               vuln = fetch_vulnerability(vuln_id)
             rescue ex : Exception
-              log("Failed to fetch vulnerability #{vuln_id}: #{ex.message}")
+              failure = ex.message || ex.class.name
+              log("Failed to fetch vulnerability #{vuln_id}: #{failure}")
             ensure
-              channel.send({vuln_id, vuln})
+              channel.send({vuln_id, vuln, failure})
             end
           end
         end
 
         batch.size.times do
-          vid, vuln = channel.receive
+          vid, vuln, failure = channel.receive
           fetched[vid] = vuln
+          if failure
+            failures += 1
+            @errors << failure unless @errors.includes?(failure)
+          end
         end
+      end
+
+      # The batch query already told us these advisories exist; losing their
+      # details is missing findings, not a clean result. Reporting nothing
+      # and no error is how a transient OSV outage printed "No
+      # vulnerabilities found!" and exited 0.
+      if failures > 0
+        @errors.unshift("#{failures} of #{unique_vuln_ids.size} OSV advisory lookups failed")
       end
 
       # Build vulnerability list per dependency
@@ -214,7 +241,8 @@ module Shards::Audit
             dependency_name: dep_name,
             source: "OSV",
             url: vuln.url,
-            affected_ranges: vuln.affected_ranges
+            affected_ranges: vuln.affected_ranges,
+            affected_versions: vuln.affected_versions
           )
         end
       end
@@ -228,7 +256,9 @@ module Shards::Audit
         response = http_request(@api_base, method, path, headers, body)
 
         if retryable_status?(response.status_code)
-          raise IO::Error.new("OSV API returned #{response.status_code} (retryable)")
+          raise RetryableResponseError.new(
+            "OSV API returned #{response.status_code} (retryable)",
+            retry_after_seconds(response.headers["Retry-After"]?))
         end
 
         unless response.status.success?

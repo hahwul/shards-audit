@@ -155,6 +155,48 @@
 - **The OSV querybatch was never chunked.** OSV caps a request at 1000
   queries, so a large lockfile silently exceeded the cap and failed the whole
   source. Queries are now split into batches of 500.
+- **The GitHub source could never match a Crystal shard.** It queried the
+  global advisory database with `/advisories?affects=owner/repo`, but
+  `affects` filters by package name inside a GitHub-supported ecosystem and
+  Crystal is not one — the query answers `[]` for every shard, and a published
+  Crystal advisory is not in the global database at all. Advisories are now
+  read from `/repos/{owner}/{repo}/security-advisories`, where a shard
+  maintainer actually publishes them, filtered to `state=published`. The cache
+  key is namespaced by endpoint so a warm cache cannot keep serving the old
+  empty answer.
+- **Repository advisories reported "no fix available".** They name the field
+  `patched_versions`; only the global schema's `first_patched_version` was
+  read.
+- **OSV `affected[].versions` was ignored.** A version matches an OSV entry
+  when it falls inside a range *or* when it is named in the enumerated
+  `versions` list. Only ranges were consulted, so an advisory that enumerates
+  affected git tags and carries ranges for another packaging of the same code
+  judged an explicitly-listed version unaffected. Another false negative.
+- **Withdrawn advisories were reported as findings.** OSV's `withdrawn` and
+  GitHub's `withdrawn_at` both mean the entry has been retracted; a retraction
+  kept failing CI until somebody added the id to `ignore:` by hand. Draft and
+  triage repository advisories — visible to a token with repository access —
+  are excluded for the same reason.
+- **A failed OSV advisory lookup was reported as a clean scan.** The batch
+  query finds the ids and a second request fetches each one; those fetches
+  answered nil for both "the request failed" and "nothing to report", so an
+  OSV outage printed "No vulnerabilities found!" and exited 0.
+- **An incomplete audit exited 0.** Only a *total* source failure exited
+  non-zero, so a spent GitHub quota — or an OSV outage for a lockfile with no
+  GitHub remotes at all — printed the all-clear and CI read it as an audited,
+  clean tree. A clean result with any source error now exits 2; `--exit-zero`
+  still forces 0.
+- **A blank `GITHUB_TOKEN` failed every GitHub request.**
+  `GITHUB_TOKEN: ${{ secrets.MISSING }}` exports an empty string, which was
+  read as a token: requests went out as `Authorization: Bearer ` and GitHub
+  answered 401, so the source failed for a run that would have worked
+  unauthenticated. It also made `sanitize_log` redact the empty string, which
+  `String#gsub` matches between every character.
+- **`Retry-After` was ignored.** A 429 or 503 carrying the header was retried
+  after 0.5s against a window the server said would not reopen yet, burning
+  the remaining attempts. The server's advice is now honoured, capped at 30s.
+  A 429 whose `x-ratelimit-remaining` is already `0` is the primary rate
+  limit and is no longer retried at all.
 
 ### Changed
 
