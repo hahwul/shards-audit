@@ -11,6 +11,8 @@ module Shards::Audit
 
       advisories.compact_map do |advisory|
         ghsa_id = dig_s(advisory, "ghsa_id") || next
+        next unless reportable?(advisory)
+
         summary = dig_s(advisory, "summary") || ""
         url = dig_s(advisory, "html_url")
 
@@ -58,6 +60,19 @@ module Shards::Audit
       end
     end
 
+    # A retracted or not-yet-published advisory is not a finding.
+    #
+    # `withdrawn_at` marks an advisory GitHub has retracted; it was reported
+    # like any other, so a retraction kept failing CI until someone added the
+    # id to `ignore:` by hand. `state` appears on repository advisories: a
+    # token with repository access also sees `draft` and `triage` entries,
+    # which are unreviewed reports rather than confirmed vulnerabilities.
+    private def reportable?(advisory : JSON::Any) : Bool
+      return false if dig_s(advisory, "withdrawn_at").presence
+      state = dig_s(advisory, "state").presence
+      state.nil? || state == "published"
+    end
+
     private def parse_advisory_vulnerabilities(advisory : JSON::Any) : {String?, Array(SemverRange)}
       fixed_version = nil
       affected_ranges = [] of SemverRange
@@ -79,9 +94,16 @@ module Shards::Audit
     # (and in some cached/mirrored payloads). Accept both rather than letting
     # the unexpected shape raise — an exception here used to kill the whole
     # GitHub source.
+    #
+    # Repository security advisories name the same thing `patched_versions`,
+    # so reading only `first_patched_version` reported "no fix available" for
+    # every advisory that came from that endpoint.
     private def extract_first_patched_version(vuln : JSON::Any) : String?
-      value = dig(vuln, "first_patched_version") || return
-      value.as_s? || dig_s(value, "identifier")
+      if value = dig(vuln, "first_patched_version")
+        patched = value.as_s?.try(&.scrub) || dig_s(value, "identifier")
+        return patched if patched.presence
+      end
+      dig_s(vuln, "patched_versions").presence
     end
   end
 end

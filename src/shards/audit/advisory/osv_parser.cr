@@ -66,11 +66,18 @@ module Shards::Audit
       data = JSON.parse(body)
 
       id = dig_s(data, "id") || return
+
+      # OSV §withdrawn: a non-null `withdrawn` timestamp means the entry has
+      # been retracted and "should be considered no longer valid". It was
+      # reported like any other advisory, so a retracted entry kept failing a
+      # CI job until someone added it to `ignore:` by hand.
+      return if dig_s(data, "withdrawn").presence
+
       summary = dig_s(data, "summary") || dig_s(data, "details") || ""
       aliases = dig_a(data, "aliases").try(&.compact_map(&.as_s?)) || [] of String
 
       severity, cvss_score = extract_severity(data)
-      fixed_version, all_semver_ranges = extract_affected_ranges(data)
+      fixed_version, all_semver_ranges, affected_versions = extract_affected_ranges(data)
       url = extract_advisory_url(data, id)
 
       Vulnerability.new(
@@ -82,6 +89,7 @@ module Shards::Audit
         fixed_version: fixed_version,
         url: url,
         affected_ranges: all_semver_ranges,
+        affected_versions: affected_versions,
       )
     end
 
@@ -115,15 +123,28 @@ module Shards::Audit
       {severity, cvss_score}
     end
 
-    private def extract_affected_ranges(data : JSON::Any) : {String?, Array(SemverRange)}
+    private def extract_affected_ranges(data : JSON::Any) : {String?, Array(SemverRange), Array(String)}
       fixed_version = nil
       all_semver_ranges = [] of SemverRange
+      exact_versions = [] of String
       # True once we meet an `affected[]` entry we cannot evaluate locally.
       unfilterable = false
 
-      affected_arr = dig_a(data, "affected") || return {fixed_version, all_semver_ranges}
+      affected_arr = dig_a(data, "affected") || return {fixed_version, all_semver_ranges, exact_versions}
 
       affected_arr.each do |affected|
+        # `versions` is an enumeration of affected versions and is
+        # independent of `ranges` — an entry may carry either, both or
+        # neither. Collect it before the `ranges` guard below, which used to
+        # skip a versions-only entry outright.
+        if listed = dig_a(affected, "versions")
+          listed.each do |value|
+            if version = value.as_s?.try(&.scrub).presence
+              exact_versions << version unless exact_versions.includes?(version)
+            end
+          end
+        end
+
         ranges = dig_a(affected, "ranges") || next
 
         # A GIT range's events hold commit hashes. Parsing them as SemVer
@@ -152,9 +173,9 @@ module Shards::Audit
 
       # Empty ranges make `Vulnerability#affected?` answer true, which is the
       # conservative result we want when part of the advisory was opaque.
-      return {fixed_version, [] of SemverRange} if unfilterable
+      return {fixed_version, [] of SemverRange, [] of String} if unfilterable
 
-      {fixed_version, all_semver_ranges}
+      {fixed_version, all_semver_ranges, exact_versions}
     end
 
     private def version_range?(range : JSON::Any) : Bool

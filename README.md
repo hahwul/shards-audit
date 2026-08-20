@@ -1,6 +1,6 @@
 # shards-audit
 
-Security vulnerability scanner for Crystal shard dependencies. Checks your `shard.lock` against [OSV](https://osv.dev/) and [GitHub Security Advisories](https://github.com/advisories).
+Security vulnerability scanner for Crystal shard dependencies. Checks your `shard.lock` against [OSV](https://osv.dev/) and, for shards hosted on GitHub, the [repository security advisories](https://docs.github.com/en/code-security/security-advisories/working-with-repository-security-advisories/about-repository-security-advisories) each project publishes.
 
 ## Installation
 
@@ -55,7 +55,12 @@ shards-audit
 |------|---------|
 | 0 | No vulnerabilities found (or `--exit-zero`) |
 | 1 | Vulnerabilities found |
-| 2 | Error |
+| 2 | Error, including an audit that could not be completed |
+
+"No vulnerabilities found" is a claim about every source, so a run where a
+source never answered — a network failure, a rejected token, an exhausted
+GitHub quota — exits 2 rather than 0, even when nothing was found. Pass
+`--exit-zero` to opt out.
 
 ### Examples
 

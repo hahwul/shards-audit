@@ -24,7 +24,12 @@ module Shards::Audit
     def initialize(
       @lockfile_path = "./shard.lock",
       @format = OutputFormat::Table,
-      @github_token = ENV["GITHUB_TOKEN"]?,
+      # `.presence`, because `GITHUB_TOKEN: ${{ secrets.MISSING }}` exports
+      # the variable as an empty string. That is "no token", but it was read
+      # as one — every request went out as `Authorization: Bearer `, GitHub
+      # answered 401, and the whole GitHub source failed for a run that would
+      # have worked unauthenticated.
+      @github_token = ENV["GITHUB_TOKEN"]?.presence,
       @verbose = false,
       @no_color = Config.color_disabled_by_environment?,
       @timeout = 30,

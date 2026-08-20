@@ -94,9 +94,9 @@ describe "scan resilience" do
       cache = Shards::Audit::Cache.new(cache_dir, 3600)
       # Pre-seed the cache so no network call happens; the payload has the
       # null/wrong-type fields that used to raise.
-      cache.set("github/o/broken.json",
+      cache.set("github/repo-advisories/o/broken.json",
         %([{"ghsa_id":"GHSA-1","cve_id":null,"vulnerabilities":null,"summary":null}]))
-      cache.set("github/o/fine.json",
+      cache.set("github/repo-advisories/o/fine.json",
         %([{"ghsa_id":"GHSA-2","summary":"ok","severity":"high"}]))
 
       client = Shards::Audit::GithubClient.new(timeout: 5, cache: cache)

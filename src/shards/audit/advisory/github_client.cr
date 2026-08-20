@@ -9,8 +9,16 @@ module Shards::Audit
 
     GITHUB_API_BASE = "https://api.github.com"
 
-    def initialize(@token : String? = nil, @timeout : Int32 = 30, @verbose : Bool = false, @cache : Cache? = nil,
+    @token : String?
+
+    def initialize(token : String? = nil, @timeout : Int32 = 30, @verbose : Bool = false, @cache : Cache? = nil,
                    @api_base : String = GITHUB_API_BASE)
+      # A blank token is no token. `--github-token ""` sent `Authorization:
+      # Bearer ` and got every request rejected with 401, and `sanitize_log`
+      # redacted the empty string — which `String#gsub` matches between every
+      # character, turning each log line into a wall of `[REDACTED]`.
+      @token = token.presence
+
       # Set once the API tells us the quota is gone. Every later dependency
       # would get the same answer, so stop asking instead of walking the
       # whole lockfile against a limit we already know is exhausted.
@@ -99,7 +107,11 @@ module Shards::Audit
     MAX_PAGES = 10
 
     private def query_advisories(owner_repo : String, dep_name : String) : Array(Vulnerability)
-      cache_key = "github/#{owner_repo}.json"
+      # Namespaced by endpoint. The previous key held the *global* advisory
+      # database's answer, which is an empty list for every Crystal shard —
+      # reusing it would serve "no advisories" from disk for the whole TTL
+      # after this upgrade.
+      cache_key = "github/repo-advisories/#{owner_repo}.json"
 
       if cache = @cache
         if cached = cache.get(cache_key)
@@ -115,10 +127,7 @@ module Shards::Audit
 
       collected = [] of JSON::Any
       cacheable = true
-      # Encoded even though GITHUB_URL_PATTERN already restricts the charset
-      # — the value originates in the lockfile, so the request path should
-      # not depend on the regex staying tight.
-      path : String? = "/advisories?affects=#{URI.encode_www_form(owner_repo)}&per_page=100"
+      path : String? = advisories_path(owner_repo)
       page = 0
 
       while path && page < MAX_PAGES
@@ -148,6 +157,32 @@ module Shards::Audit
       parse_advisories(all_advisories, dep_name)
     end
 
+    # Where a Crystal shard's advisories actually live.
+    #
+    # The source used to query the *global* advisory database with
+    # `/advisories?affects=owner/repo`. `affects` filters by package name
+    # inside a GitHub-supported ecosystem, and Crystal is not one of them —
+    # so the query returned `[]` for every shard, and the GitHub source
+    # could never contribute a single finding. Confirmed against the live
+    # API: `GET /advisories?affects=hahwul/sarif.cr` answers `[]`, and
+    # GHSA-wqh5-7w63-pm68 (a published Crystal advisory) is not in the global
+    # database at all — `GET /advisories/GHSA-wqh5-7w63-pm68` is a 404.
+    #
+    # Repository security advisories are where a shard maintainer publishes,
+    # and the endpoint serves published ones without authentication.
+    #
+    # `state=published` matters once a token is supplied: a collaborator's
+    # token also sees draft and triage advisories, which are unconfirmed and
+    # must not be reported as findings.
+    private def advisories_path(owner_repo : String) : String
+      owner, _, repo = owner_repo.partition('/')
+      # Encoded even though GITHUB_URL_PATTERN already restricts the charset
+      # — the value originates in the lockfile, so the request path should
+      # not depend on the regex staying tight.
+      "/repos/#{URI.encode_path_segment(owner)}/#{URI.encode_path_segment(repo)}" \
+      "/security-advisories?per_page=100&state=published"
+    end
+
     # Returns {body, next_page_path, came_from_a_200}.
     private def make_request_with_links(method : String, path : String) : {String, String?, Bool}
       with_retry do
@@ -163,8 +198,19 @@ module Shards::Audit
 
         response = http_request(@api_base, method, path, headers)
 
+        # A 429 whose quota counter has already reached zero is the primary
+        # rate limit, which no amount of retrying reopens — it is the same
+        # condition the 403 branch below latches on, and it was being retried
+        # three times per dependency with backoff.
+        if response.status_code == 429 && response.headers["x-ratelimit-remaining"]? == "0"
+          @rate_limited = true
+          raise AdvisoryRequestError.new(rate_limit_message(response))
+        end
+
         if retryable_status?(response.status_code)
-          raise IO::Error.new("GitHub API returned #{response.status_code} (retryable)")
+          raise RetryableResponseError.new(
+            "GitHub API returned #{response.status_code} (retryable)",
+            retry_after_seconds(response.headers["Retry-After"]?))
         end
 
         case response.status_code

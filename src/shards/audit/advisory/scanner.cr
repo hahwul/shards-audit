@@ -76,7 +76,10 @@ module Shards::Audit
       vulns = client.scan(dependencies)
       elapsed = (Time.instant - start).total_milliseconds
       log("OSV scan: #{vulns.size} vulnerabilities found in #{elapsed.round(0)}ms")
-      {vulns, nil}
+      # Per-advisory lookup failures are swallowed so one bad payload cannot
+      # kill the run, which also made a source that answered nothing look
+      # like a source that found nothing. See GithubClient below.
+      {vulns, client.errors.empty? ? nil : "OSV scan: #{client.errors.join("; ")}"}
     rescue ex : Exception
       {[] of Vulnerability, "OSV scan failed: #{ex.message}"}
     end
