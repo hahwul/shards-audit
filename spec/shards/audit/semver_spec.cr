@@ -230,6 +230,38 @@ describe Shards::Audit::SemverRangeParser do
       ranges.size.should eq(2)
     end
 
+    # OSV schema §Evaluation walks `sorted(range.events)` and toggles: a
+    # later `introduced` while already vulnerable changes nothing, and the
+    # array need not be sorted ("recommended", not required).
+    it "evaluates events in version order, not listed order" do
+      affected = ->(json : String, v : String) do
+        events = JSON.parse(json).as_a
+        ranges = Shards::Audit::SemverRangeParser.parse_osv_events(events)
+        ranges.any?(&.includes?(Shards::Audit::Semver.parse(v).not_nil!))
+      end
+
+      overlapping = %([{"introduced":"1.0.0"},{"introduced":"1.2.0"},{"fixed":"1.5.0"}])
+      affected.call(overlapping, "1.1.0").should be_true
+      affected.call(overlapping, "1.3.0").should be_true
+      affected.call(overlapping, "2.0.0").should be_false
+
+      unsorted = %([{"fixed":"1.2.0"},{"introduced":"1.0.0"}])
+      affected.call(unsorted, "0.5.0").should be_false
+      affected.call(unsorted, "1.1.0").should be_true
+      affected.call(unsorted, "1.5.0").should be_false
+
+      descending = %([{"fixed":"2.5.0"},{"introduced":"2.0.0"},{"fixed":"1.0.0"},{"introduced":"0"}])
+      affected.call(descending, "0.5.0").should be_true
+      affected.call(descending, "1.5.0").should be_false
+      affected.call(descending, "2.2.0").should be_true
+      affected.call(descending, "3.0.0").should be_false
+
+      # `fixed` and `introduced` at the same version: the window reopens.
+      reopened = %([{"fixed":"2.0.0"},{"introduced":"1.5.0"},{"fixed":"1.5.0"},{"introduced":"0"}])
+      affected.call(reopened, "1.7.0").should be_true
+      affected.call(reopened, "2.0.0").should be_false
+    end
+
     it "treats last_affected as an inclusive upper bound" do
       events = JSON.parse(%([{"introduced":"1.0.0"}, {"last_affected":"1.5.0"}])).as_a
       ranges = Shards::Audit::SemverRangeParser.parse_osv_events(events)

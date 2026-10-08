@@ -160,44 +160,38 @@ module Shards::Audit
     # `events` are OSV range events. Values are read with `as_s?` so a
     # null or non-string event value yields nil instead of raising a
     # TypeCastError deep inside a scanning fiber.
+    #
+    # OSV §Evaluation walks `sorted(range.events)`: `introduced` makes a
+    # version vulnerable, a later `fixed`/`last_affected` clears it, and a
+    # second `introduced` while already vulnerable changes nothing. Pairing
+    # events in *listed* order instead (sorting is only "recommended") turned
+    # a descending listing, or `introduced 1.0, introduced 1.2, fixed 1.5`,
+    # into windows that matched every version above the fix.
     def self.parse_osv_events(events : Array(JSON::Any)) : Array(SemverRange)
-      ranges = [] of SemverRange
-      introduced : Semver? = nil
-
+      bounds = [] of {String, Semver}
       events.each do |event|
         next unless event.as_h?
+        kind = {"introduced", "fixed", "last_affected"}.find { |k| event[k]?.try(&.as_s?) } || next
+        version = Semver.parse(event[kind].as_s)
+        # A bound we cannot place cannot be sorted; assume every version is
+        # affected rather than guess where it falls.
+        return [SemverRange.new] unless version
+        bounds << {kind, version}
+      end
 
-        if intro_str = event["introduced"]?.try(&.as_s?)
-          # Two `introduced` events with no `fixed` between them: the first
-          # window was never closed, so it is still vulnerable. Overwriting
-          # it discarded that window entirely and a version inside it was
-          # judged safe.
-          ranges << SemverRange.new(introduced: introduced, fixed: nil) if introduced
-
-          introduced = if intro_str == "0"
-                         Semver.new(0, 0, 0)
-                       else
-                         Semver.parse(intro_str)
-                       end
-        elsif fixed_str = event["fixed"]?.try(&.as_s?)
-          fixed = Semver.parse(fixed_str)
-          ranges << SemverRange.new(introduced: introduced, fixed: fixed)
-          introduced = nil
-        elsif last_str = event["last_affected"]?.try(&.as_s?)
-          # last_affected is an INCLUSIVE upper bound (OSV semantics): versions
-          # up to and including last_affected are vulnerable, versions above it
-          # are not. Model it as `fixed: last_affected` with fixed_inclusive.
-          last = Semver.parse(last_str)
-          ranges << SemverRange.new(introduced: introduced, fixed: last, fixed_inclusive: true)
+      ranges = [] of SemverRange
+      introduced : Semver? = nil
+      # At a shared version the closing event goes first, so an `introduced`
+      # there reopens the window instead of being swallowed by it.
+      bounds.sort_by! { |kind, version| {version, kind == "introduced" ? 1 : 0} }.each do |kind, version|
+        if kind == "introduced"
+          introduced ||= version
+        elsif intro = introduced
+          ranges << SemverRange.new(introduced: intro, fixed: version, fixed_inclusive: kind == "last_affected")
           introduced = nil
         end
       end
-
-      # Trailing introduced with no fixed = still vulnerable
-      if introduced
-        ranges << SemverRange.new(introduced: introduced, fixed: nil)
-      end
-
+      ranges << SemverRange.new(introduced: introduced) if introduced
       ranges
     end
 

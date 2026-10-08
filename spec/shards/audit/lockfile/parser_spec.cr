@@ -169,5 +169,38 @@ describe Shards::Audit::LockfileParser do
       result.dependencies.size.should eq(1)
       result.dependencies[0].name.should eq("valid-shard")
     end
+    # shards still reads lock version 1.0, whose entries name the host with a
+    # `github:`/`gitlab:`/`bitbucket:`/`codeberg:` key instead of `git:`
+    # (shards src/dependency.cr, resolvers/git.cr). Requiring `git:` skipped
+    # every such shard, so an old lockfile audited nothing and exited 0.
+    it "expands the lock 1.0 provider shorthand keys into git URLs" do
+      content = <<-YAML
+        version: 1.0
+        shards:
+          kemal:
+            github: kemalcr/kemal
+            version: 0.26.0
+          foo:
+            gitlab: Owner/Foo
+            commit: 212c2c79bf2f9a0d6e6b7f2a8d45d2e2bb8a1dde
+          bar:
+            bitbucket: o/bar
+            version: 1.0.0
+          baz:
+            codeberg: o/baz
+            version: 1.0.0
+        YAML
+
+      result = Shards::Audit::LockfileParser.parse_content(content)
+      result.skipped_deps.should be_empty
+      result.dependencies.map(&.git_url).should eq([
+        "https://github.com/kemalcr/kemal.git",
+        "https://gitlab.com/owner/foo.git",
+        "https://bitbucket.com/o/bar.git",
+        "https://codeberg.org/o/baz.git",
+      ])
+      result.dependencies[0].github_owner_repo.should eq("kemalcr/kemal")
+      result.dependencies[1].commit.should eq("212c2c79bf2f9a0d6e6b7f2a8d45d2e2bb8a1dde")
+    end
   end
 end

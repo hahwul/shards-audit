@@ -20,15 +20,13 @@ module Shards::Audit
     def with_retry(max_retries : Int32 = 3, base_delay : Float64 = 0.5, &)
       retries = 0
       loop do
-        begin
-          return yield
-        rescue ex : IO::Error | Socket::ConnectError | IO::TimeoutError
-          retries += 1
-          raise ex if retries > max_retries
-          actual_delay = retry_delay(ex, retries, base_delay)
-          Shards::Audit.stderr.puts("[Retry] Attempt #{retries}/#{max_retries} after #{actual_delay.round(2)}s: #{ex.message}") if @verbose
-          sleep(actual_delay.seconds)
-        end
+        return yield
+      rescue ex : IO::Error | Socket::ConnectError | IO::TimeoutError
+        retries += 1
+        raise ex if retries > max_retries
+        actual_delay = retry_delay(ex, retries, base_delay)
+        Shards::Audit.stderr.puts("[Retry] Attempt #{retries}/#{max_retries} after #{actual_delay.round(2)}s: #{ex.message}") if @verbose
+        sleep(actual_delay.seconds)
       end
     end
 
