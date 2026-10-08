@@ -6,6 +6,9 @@ module Shards::Audit
 
     MAX_LOCKFILE_SIZE = 5 * 1024 * 1024 # 5MB
 
+    PROVIDER_HOSTS = {"github" => "github.com", "gitlab" => "gitlab.com",
+                      "bitbucket" => "bitbucket.com", "codeberg" => "codeberg.org"}
+
     record ParseResult, dependencies : Array(Dependency), skipped_deps : Array(String)
 
     def self.parse(path : String) : ParseResult
@@ -76,6 +79,13 @@ module Shards::Audit
         end
 
         git_url = YamlNodes.scalar_value(YamlNodes.mapping_value(info, "git")).presence
+        # Lock version 1.0 (still read by shards) names the host with a
+        # provider key instead. Expanded the way shards' GitResolver does.
+        git_url ||= PROVIDER_HOSTS.each do |key, host|
+          if source = YamlNodes.scalar_value(YamlNodes.mapping_value(info, key)).presence
+            break "https://#{host}/#{source.downcase}.git"
+          end
+        end
         unless git_url
           skipped_deps << dep_name
           next
