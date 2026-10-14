@@ -1,19 +1,11 @@
 ##= BUILDER =##
-FROM crystallang/crystal:1.20.0 AS builder
+# Static musl build, same as release-binary.yml. The glibc image (Ubuntu 26.04
+# since 1.22) can't link OpenSSL statically without libjitterentropy.a.
+FROM crystallang/crystal:1.22.0-alpine AS builder
 WORKDIR /app
 COPY . .
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends libyaml-dev libzstd-dev zlib1g-dev pkg-config && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* && \
-    mv /usr/bin/pkg-config /usr/bin/pkg-config-original && \
-    echo '#!/bin/sh' > /usr/bin/pkg-config && \
-    echo 'if echo "$@" | grep -q -- "--libs"; then' >> /usr/bin/pkg-config && \
-    echo '  exec /usr/bin/pkg-config-original "$@" --static' >> /usr/bin/pkg-config && \
-    echo 'else' >> /usr/bin/pkg-config && \
-    echo '  exec /usr/bin/pkg-config-original "$@"' >> /usr/bin/pkg-config && \
-    echo 'fi' >> /usr/bin/pkg-config && \
-    chmod +x /usr/bin/pkg-config && \
+RUN apk add --no-cache yaml-dev yaml-static zlib-dev zlib-static zstd-dev zstd-static git && \
     shards install --production && \
     shards build --release --no-debug --production --static
 
@@ -25,6 +17,11 @@ LABEL org.opencontainers.image.description="Security vulnerability scanner for C
 LABEL org.opencontainers.image.authors="hahwul <hahwul@gmail.com>"
 LABEL org.opencontainers.image.source="https://github.com/hahwul/shards-audit"
 LABEL org.opencontainers.image.licenses="MIT"
+
+# OSV/GitHub lookups are HTTPS; debian-slim ships no CA bundle.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/bin/shards-audit /usr/local/bin/shards-audit
 
