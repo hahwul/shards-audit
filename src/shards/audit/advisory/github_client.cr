@@ -135,9 +135,11 @@ module Shards::Audit
         body, next_path, ok = make_request_with_links("GET", path)
         cacheable &&= ok
 
-        if items = JSON.parse(body).as_a?
-          collected.concat(items)
-        end
+        # The endpoint answers an array. Anything else in a 200 is not an
+        # answer, and treating it as an empty one reported (and cached) the
+        # repository as having no advisories.
+        items = JSON.parse(body).as_a? || raise AdvisoryRequestError.new("GitHub API returned an unexpected response body for #{owner_repo}")
+        collected.concat(items)
 
         path = next_path
         log("Following pagination page #{page + 1} for #{owner_repo}") if path
@@ -183,8 +185,13 @@ module Shards::Audit
       "/security-advisories?per_page=100&state=published"
     end
 
+    # A renamed or transferred repository answers 301 with a `Location` on
+    # the API host (`/repositories/{id}/...`). Not following it failed every
+    # lockfile that still names a shard by its old URL.
+    MAX_REDIRECTS = 3
+
     # Returns {body, next_page_path, came_from_a_200}.
-    private def make_request_with_links(method : String, path : String) : {String, String?, Bool}
+    private def make_request_with_links(method : String, path : String, redirects : Int32 = 0) : {String, String?, Bool}
       with_retry do
         headers = HTTP::Headers{
           "Accept"               => "application/vnd.github+json",
@@ -227,6 +234,16 @@ module Shards::Audit
             raise AdvisoryRequestError.new(rate_limit_message(response))
           end
           raise AdvisoryRequestError.new("GitHub API returned 403 Forbidden for #{path}")
+        when 301, 302, 307, 308
+          # GitHub REST: "clients should assume that any request may result
+          # in a redirection". Only same-host targets are followed, so the
+          # token is never sent elsewhere.
+          target = same_host_path(response.headers["Location"]?)
+          if target && redirects < MAX_REDIRECTS
+            log("Following #{response.status_code} redirect for #{path}")
+            return make_request_with_links(method, target, redirects + 1)
+          end
+          raise AdvisoryRequestError.new("GitHub API returned #{response.status_code} for #{path}")
         when 404, 422
           # Nothing to report for this repository, not a failure.
           log("GitHub API returned #{response.status_code} for #{path} — no advisories found")
@@ -265,6 +282,17 @@ module Shards::Audit
         return uri.query ? "#{path}?#{uri.query}" : path
       end
 
+      nil
+    end
+
+    private def same_host_path(location : String?) : String?
+      return unless location
+      uri = URI.parse(location)
+      return unless uri.host.nil? || uri.host == URI.parse(@api_base).host
+      path = uri.path
+      return unless path.starts_with?('/')
+      uri.query ? "#{path}?#{uri.query}" : path
+    rescue URI::Error
       nil
     end
 

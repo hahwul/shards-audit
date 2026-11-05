@@ -21,7 +21,14 @@ module Shards::Audit
     # into the advisory request path — so
     # `https://github.com/owner/repo&affects=torvalds%2Flinux` produced a
     # request carrying a second `affects` parameter.
-    GITHUB_URL_PATTERN = /github\.com[\/:]([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?(?:[\/?#]|\s|$)/
+    #
+    # The host is anchored at the start of the remote. An unanchored
+    # `github\.com[\/:]` also matched `notgithub.com` and mirror paths
+    # containing `/github.com/`, and in a URL with a port it read the port as
+    # the owner: GitHub's documented SSH-over-HTTPS remote
+    # `ssh://git@ssh.github.com:443/owner/repo.git` resolved to `443/owner`,
+    # a repository that 404s — which reads as "no advisories".
+    GITHUB_URL_PATTERN = %r{\A(?:[a-z][a-z0-9+.-]*://(?:[^@/]*@)?(?:www\.|ssh\.)?github\.com(?::\d+)?/|(?:[^@/:]+@)?github\.com[/:])([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?(?:[/?#]|\s|$)}i
 
     getter name : String
     getter git_url : String

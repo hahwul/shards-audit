@@ -32,6 +32,9 @@ module Shards::Audit
         score = dig_f(advisory, "cvss", "score")
         score = nil if score && score <= 0.0
         score ||= dig_s(advisory, "cvss", "vector_string").try { |v| parse_cvss_score(v).try(&.[0]) }
+        # A CVSS v4-only advisory leaves `cvss` null and publishes its score
+        # only under `cvss_severities`, so the score was dropped.
+        score ||= dig_f(advisory, "cvss_severities", "cvss_v4", "score").try { |v| v if v > 0.0 }
         if score
           cvss_score = score
           severity = Severity.from_cvss(score)
@@ -103,7 +106,9 @@ module Shards::Audit
         patched = value.as_s?.try(&.scrub) || dig_s(value, "identifier")
         return patched if patched.presence
       end
-      dig_s(vuln, "patched_versions").presence
+      # Free text in that schema: maintainers write "none" when there is no
+      # fix, which rendered as "Upgrade to >= none".
+      dig_s(vuln, "patched_versions").presence.try { |v| v if v.matches?(/\d/) }
     end
   end
 end

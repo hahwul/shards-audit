@@ -20,6 +20,20 @@ describe Shards::Audit::Dependency do
       dep.github_owner_repo.should eq("kemalcr/kemal")
     end
 
+    # The host was not anchored, so a port was read as the owner and any
+    # URL merely containing "github.com/" resolved to a GitHub repository.
+    it "anchors the GitHub host and skips an SSH port" do
+      {
+        "ssh://git@ssh.github.com:443/kemalcr/kemal.git" => "kemalcr/kemal",
+        "ssh://git@github.com:22/kemalcr/kemal.git"      => "kemalcr/kemal",
+        "https://GitHub.com/kemalcr/kemal.git"           => "kemalcr/kemal",
+        "https://notgithub.com/kemalcr/kemal.git"        => nil,
+        "https://git.example/mirror/github.com/o/r.git"  => nil,
+      }.each do |url, expected|
+        Shards::Audit::Dependency.new(name: "x", git_url: url).github_owner_repo.should eq(expected)
+      end
+    end
+
     it "returns nil for non-GitHub URLs" do
       dep = Shards::Audit::Dependency.new(
         name: "my-shard",
