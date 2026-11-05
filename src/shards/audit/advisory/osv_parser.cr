@@ -34,6 +34,7 @@ module Shards::Audit
       end
 
       results.each_with_index do |entry, idx|
+        raise OsvResponseError.new("OSV querybatch result #{idx} is not an object") unless entry.as_h?
         dep = query_deps[idx]
         collect_vuln_ids(dig_a(entry, "vulns"), dep, vuln_ids_by_dep)
 

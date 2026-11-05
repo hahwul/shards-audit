@@ -465,6 +465,28 @@ describe "GitHub repository advisory responses" do
     end
   end
 
+  # Each hop gets its own retry budget; recursing from inside `with_retry`
+  # multiplied the attempts (20 requests for one hop to a 503).
+  it "does not nest retries across a redirect" do
+    api = RecordingApi.new do |ctx|
+      if ctx.request.resource.starts_with?("/repos/")
+        ctx.response.status_code = 301
+        ctx.response.headers["Location"] = "/repositories/42/security-advisories"
+      else
+        ctx.response.headers["Retry-After"] = "0"
+        ctx.response.status_code = 503
+      end
+    end
+    begin
+      client = Shards::Audit::GithubClient.new(timeout: 5, api_base: api.base)
+      client.scan([dep]).should be_empty
+      client.errors.should_not be_empty
+      api.requests.size.should eq(5)
+    ensure
+      api.close
+    end
+  end
+
   it "does not follow a redirect to another host" do
     api = RecordingApi.new do |ctx|
       ctx.response.status_code = 301
@@ -529,6 +551,35 @@ describe "OSV querybatch responses" do
     api = RecordingApi.new(&.response.print("{}"))
     begin
       expect_raises(Shards::Audit::OsvResponseError) { scan_osv(api) }
+    ensure
+      api.close
+    end
+  end
+
+  it "rejects a result entry that is not an object" do
+    api = RecordingApi.new do |ctx|
+      body = ctx.request.body.try(&.gets_to_end) || "{}"
+      count = JSON.parse(body)["queries"].as_a.size
+      ctx.response.print({"results" => Array.new(count) { nil }}.to_json)
+    end
+    begin
+      expect_raises(Shards::Audit::OsvResponseError) { scan_osv(api) }
+    ensure
+      api.close
+    end
+  end
+end
+
+describe "non-finite CVSS scores" do
+  it "drops an Infinity score instead of crashing the JSON report" do
+    api = RecordingApi.new do |ctx|
+      ctx.response.print %([{"ghsa_id":"GHSA-inf","summary":"s","severity":"high","state":"published",
+        "cvss":{"score":"Infinity"},"vulnerabilities":[]}])
+    end
+    begin
+      vuln = Shards::Audit::GithubClient.new(timeout: 5, api_base: api.base).scan([dep]).first
+      vuln.cvss_score.should be_nil
+      vuln.severity.should eq(Shards::Audit::Severity::High)
     ensure
       api.close
     end

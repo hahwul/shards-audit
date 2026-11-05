@@ -190,8 +190,30 @@ module Shards::Audit
     # lockfile that still names a shard by its old URL.
     MAX_REDIRECTS = 3
 
+    # Raised out of `with_retry` (it is not an IO::Error), so each hop gets
+    # its own retry budget instead of nesting retry loops.
+    private class Redirect < Exception
+      getter target : String
+
+      def initialize(@target)
+        super("redirect to #{@target}")
+      end
+    end
+
     # Returns {body, next_page_path, came_from_a_200}.
-    private def make_request_with_links(method : String, path : String, redirects : Int32 = 0) : {String, String?, Bool}
+    private def make_request_with_links(method : String, path : String) : {String, String?, Bool}
+      redirects = 0
+      loop do
+        return request_page(method, path)
+      rescue ex : Redirect
+        redirects += 1
+        raise AdvisoryRequestError.new("GitHub API redirected more than #{MAX_REDIRECTS} times for #{path}") if redirects > MAX_REDIRECTS
+        log("Following redirect for #{path}")
+        path = ex.target
+      end
+    end
+
+    private def request_page(method : String, path : String) : {String, String?, Bool}
       with_retry do
         headers = HTTP::Headers{
           "Accept"               => "application/vnd.github+json",
@@ -239,10 +261,7 @@ module Shards::Audit
           # in a redirection". Only same-host targets are followed, so the
           # token is never sent elsewhere.
           target = same_host_path(response.headers["Location"]?)
-          if target && redirects < MAX_REDIRECTS
-            log("Following #{response.status_code} redirect for #{path}")
-            return make_request_with_links(method, target, redirects + 1)
-          end
+          raise Redirect.new(target) if target
           raise AdvisoryRequestError.new("GitHub API returned #{response.status_code} for #{path}")
         when 404, 422
           # Nothing to report for this repository, not a failure.
@@ -277,23 +296,31 @@ module Shards::Audit
         end
         # Only the path and query are reused; the request always goes back to
         # @api_base, so a Link header cannot redirect us to another host.
-        path = uri.path
-        next unless path.starts_with?('/')
-        return uri.query ? "#{path}?#{uri.query}" : path
+        if path = request_path(uri)
+          return path
+        end
       end
 
       nil
     end
 
+    # A `Location` resolved against @api_base, as a path to replay there —
+    # or nil when it points at a different origin.
     private def same_host_path(location : String?) : String?
       return unless location
-      uri = URI.parse(location)
-      return unless uri.host.nil? || uri.host == URI.parse(@api_base).host
+      base = URI.parse(@api_base)
+      uri = base.resolve(location)
+      return unless uri.scheme == base.scheme && uri.port == base.port &&
+                    uri.host.try(&.downcase) == base.host.try(&.downcase)
+      request_path(uri)
+    rescue URI::Error
+      nil
+    end
+
+    private def request_path(uri : URI) : String?
       path = uri.path
       return unless path.starts_with?('/')
       uri.query ? "#{path}?#{uri.query}" : path
-    rescue URI::Error
-      nil
     end
 
     private def log(message : String)

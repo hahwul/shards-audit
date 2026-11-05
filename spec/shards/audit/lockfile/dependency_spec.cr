@@ -27,7 +27,10 @@ describe Shards::Audit::Dependency do
         "ssh://git@ssh.github.com:443/kemalcr/kemal.git" => "kemalcr/kemal",
         "ssh://git@github.com:22/kemalcr/kemal.git"      => "kemalcr/kemal",
         "https://GitHub.com/kemalcr/kemal.git"           => "kemalcr/kemal",
+        "git@ssh.github.com:kemalcr/kemal.git"           => "kemalcr/kemal",
         "https://notgithub.com/kemalcr/kemal.git"        => nil,
+        "https://evil.example?@github.com/o/r"           => nil,
+        "https://evil.example#@github.com/o/r"           => nil,
         "https://git.example/mirror/github.com/o/r.git"  => nil,
       }.each do |url, expected|
         Shards::Audit::Dependency.new(name: "x", git_url: url).github_owner_repo.should eq(expected)

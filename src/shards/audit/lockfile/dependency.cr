@@ -28,7 +28,7 @@ module Shards::Audit
     # the owner: GitHub's documented SSH-over-HTTPS remote
     # `ssh://git@ssh.github.com:443/owner/repo.git` resolved to `443/owner`,
     # a repository that 404s — which reads as "no advisories".
-    GITHUB_URL_PATTERN = %r{\A(?:[a-z][a-z0-9+.-]*://(?:[^@/]*@)?(?:www\.|ssh\.)?github\.com(?::\d+)?/|(?:[^@/:]+@)?github\.com[/:])([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?(?:[/?#]|\s|$)}i
+    GITHUB_URL_PATTERN = %r{\A(?:[a-z][a-z0-9+.-]*://(?:[^@/?#]*@)?(?:www\.|ssh\.)?github\.com(?::\d+)?/|(?:[^@/:]+@)?(?:www\.|ssh\.)?github\.com[/:])([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?(?:[/?#]|\s|$)}i
 
     getter name : String
     getter git_url : String
