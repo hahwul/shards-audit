@@ -50,7 +50,10 @@ module Shards::Audit
     # are inconsistent about quoting CVSS scores.
     private def dig_f(value : JSON::Any?, *keys : String) : Float64?
       node = dig(value, *keys) || return
-      node.as_f? || node.as_i?.try(&.to_f) || node.as_s?.try(&.to_f?)
+      value = node.as_f? || node.as_i?.try(&.to_f) || node.as_s?.try(&.to_f?)
+      # `"Infinity".to_f?` parses, and a non-finite score cannot be written
+      # back out as JSON — the report crashed instead.
+      value if value.try(&.finite?)
     end
   end
 end

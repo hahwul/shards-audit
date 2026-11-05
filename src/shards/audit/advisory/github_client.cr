@@ -135,9 +135,11 @@ module Shards::Audit
         body, next_path, ok = make_request_with_links("GET", path)
         cacheable &&= ok
 
-        if items = JSON.parse(body).as_a?
-          collected.concat(items)
-        end
+        # The endpoint answers an array. Anything else in a 200 is not an
+        # answer, and treating it as an empty one reported (and cached) the
+        # repository as having no advisories.
+        items = JSON.parse(body).as_a? || raise AdvisoryRequestError.new("GitHub API returned an unexpected response body for #{owner_repo}")
+        collected.concat(items)
 
         path = next_path
         log("Following pagination page #{page + 1} for #{owner_repo}") if path
@@ -183,8 +185,35 @@ module Shards::Audit
       "/security-advisories?per_page=100&state=published"
     end
 
+    # A renamed or transferred repository answers 301 with a `Location` on
+    # the API host (`/repositories/{id}/...`). Not following it failed every
+    # lockfile that still names a shard by its old URL.
+    MAX_REDIRECTS = 3
+
+    # Raised out of `with_retry` (it is not an IO::Error), so each hop gets
+    # its own retry budget instead of nesting retry loops.
+    private class Redirect < Exception
+      getter target : String
+
+      def initialize(@target)
+        super("redirect to #{@target}")
+      end
+    end
+
     # Returns {body, next_page_path, came_from_a_200}.
     private def make_request_with_links(method : String, path : String) : {String, String?, Bool}
+      redirects = 0
+      loop do
+        return request_page(method, path)
+      rescue ex : Redirect
+        redirects += 1
+        raise AdvisoryRequestError.new("GitHub API redirected more than #{MAX_REDIRECTS} times for #{path}") if redirects > MAX_REDIRECTS
+        log("Following redirect for #{path}")
+        path = ex.target
+      end
+    end
+
+    private def request_page(method : String, path : String) : {String, String?, Bool}
       with_retry do
         headers = HTTP::Headers{
           "Accept"               => "application/vnd.github+json",
@@ -227,6 +256,13 @@ module Shards::Audit
             raise AdvisoryRequestError.new(rate_limit_message(response))
           end
           raise AdvisoryRequestError.new("GitHub API returned 403 Forbidden for #{path}")
+        when 301, 302, 307, 308
+          # GitHub REST: "clients should assume that any request may result
+          # in a redirection". Only same-host targets are followed, so the
+          # token is never sent elsewhere.
+          target = same_host_path(response.headers["Location"]?)
+          raise Redirect.new(target) if target
+          raise AdvisoryRequestError.new("GitHub API returned #{response.status_code} for #{path}")
         when 404, 422
           # Nothing to report for this repository, not a failure.
           log("GitHub API returned #{response.status_code} for #{path} — no advisories found")
@@ -260,12 +296,31 @@ module Shards::Audit
         end
         # Only the path and query are reused; the request always goes back to
         # @api_base, so a Link header cannot redirect us to another host.
-        path = uri.path
-        next unless path.starts_with?('/')
-        return uri.query ? "#{path}?#{uri.query}" : path
+        if path = request_path(uri)
+          return path
+        end
       end
 
       nil
+    end
+
+    # A `Location` resolved against @api_base, as a path to replay there —
+    # or nil when it points at a different origin.
+    private def same_host_path(location : String?) : String?
+      return unless location
+      base = URI.parse(@api_base)
+      uri = base.resolve(location)
+      return unless uri.scheme == base.scheme && uri.port == base.port &&
+                    uri.host.try(&.downcase) == base.host.try(&.downcase)
+      request_path(uri)
+    rescue URI::Error
+      nil
+    end
+
+    private def request_path(uri : URI) : String?
+      path = uri.path
+      return unless path.starts_with?('/')
+      uri.query ? "#{path}?#{uri.query}" : path
     end
 
     private def log(message : String)

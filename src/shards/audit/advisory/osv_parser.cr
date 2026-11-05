@@ -23,7 +23,9 @@ module Shards::Audit
       followups = [] of {Int32, String}
       data = JSON.parse(body)
 
-      results = dig_a(data, "results") || return followups
+      # A reply without `results` answered none of the queries; mapping it
+      # to "no vulnerabilities" for every dependency is a false all-clear.
+      results = dig_a(data, "results") || raise OsvResponseError.new("OSV querybatch response has no 'results' array")
 
       if results.size != query_deps.size
         raise OsvResponseError.new(
@@ -32,6 +34,7 @@ module Shards::Audit
       end
 
       results.each_with_index do |entry, idx|
+        raise OsvResponseError.new("OSV querybatch result #{idx} is not an object") unless entry.as_h?
         dep = query_deps[idx]
         collect_vuln_ids(dig_a(entry, "vulns"), dep, vuln_ids_by_dep)
 

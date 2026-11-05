@@ -440,3 +440,148 @@ describe "Retry-After" do
     end
   end
 end
+
+describe "GitHub repository advisory responses" do
+  advisory = %([{"ghsa_id":"GHSA-r","summary":"s","severity":"high","state":"published",
+    "vulnerabilities":[{"vulnerable_version_range":"< 2.0.0","patched_versions":"2.0.0"}]}])
+
+  # A renamed repository answers 301 with a Location on the API host.
+  it "follows a same-host redirect for a renamed repository" do
+    api = RecordingApi.new do |ctx|
+      if ctx.request.resource.starts_with?("/repos/")
+        ctx.response.status_code = 301
+        ctx.response.headers["Location"] = "http://127.0.0.1:#{ctx.request.local_address.as(Socket::IPAddress).port}/repositories/42/security-advisories?state=published"
+      else
+        ctx.response.print advisory
+      end
+    end
+    begin
+      client = Shards::Audit::GithubClient.new(timeout: 5, api_base: api.base)
+      client.scan([dep]).map(&.id).should eq(["GHSA-r"])
+      client.errors.should be_empty
+      api.requests.last.should start_with("/repositories/42/")
+    ensure
+      api.close
+    end
+  end
+
+  # Each hop gets its own retry budget; recursing from inside `with_retry`
+  # multiplied the attempts (20 requests for one hop to a 503).
+  it "does not nest retries across a redirect" do
+    api = RecordingApi.new do |ctx|
+      if ctx.request.resource.starts_with?("/repos/")
+        ctx.response.status_code = 301
+        ctx.response.headers["Location"] = "/repositories/42/security-advisories"
+      else
+        ctx.response.headers["Retry-After"] = "0"
+        ctx.response.status_code = 503
+      end
+    end
+    begin
+      client = Shards::Audit::GithubClient.new(timeout: 5, api_base: api.base)
+      client.scan([dep]).should be_empty
+      client.errors.should_not be_empty
+      api.requests.size.should eq(5)
+    ensure
+      api.close
+    end
+  end
+
+  it "does not follow a redirect to another host" do
+    api = RecordingApi.new do |ctx|
+      ctx.response.status_code = 301
+      ctx.response.headers["Location"] = "https://evil.example/repositories/42/security-advisories"
+    end
+    begin
+      client = Shards::Audit::GithubClient.new(timeout: 5, api_base: api.base)
+      client.scan([dep]).should be_empty
+      api.requests.size.should eq(1)
+      client.errors.join.should contain("301")
+    ensure
+      api.close
+    end
+  end
+
+  it "treats a non-array 200 body as a failed lookup, not as no advisories" do
+    api = RecordingApi.new { |ctx| ctx.response.print %({"message":"unexpected"}) }
+    begin
+      client = Shards::Audit::GithubClient.new(timeout: 5, api_base: api.base)
+      client.scan([dep]).should be_empty
+      client.errors.should_not be_empty
+    ensure
+      api.close
+    end
+  end
+
+  # kemalcr/kemal GHSA-89xc-29wg-6mm5 publishes `"patched_versions": "none"`.
+  it "does not report a patched_versions of 'none' as a fix version" do
+    api = RecordingApi.new do |ctx|
+      ctx.response.print %([{"ghsa_id":"GHSA-n","summary":"s","state":"published",
+        "vulnerabilities":[{"vulnerable_version_range":">= 1.0.0, <= 2.0.0","patched_versions":"none"}]}])
+    end
+    begin
+      Shards::Audit::GithubClient.new(timeout: 5, api_base: api.base)
+        .scan([dep]).first.fixed_version.should be_nil
+    ensure
+      api.close
+    end
+  end
+
+  # kemalcr/kemal GHSA-2x8p-5jvx-v7jw: `cvss` is null, the score lives only
+  # under `cvss_severities.cvss_v4`.
+  it "reads a CVSS v4-only score from cvss_severities" do
+    api = RecordingApi.new do |ctx|
+      ctx.response.print %([{"ghsa_id":"GHSA-v4","summary":"s","severity":"high","state":"published",
+        "cvss":{"score":null,"vector_string":null},
+        "cvss_severities":{"cvss_v3":{"score":null,"vector_string":null},"cvss_v4":{"score":8.7,"vector_string":"CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"}},
+        "vulnerabilities":[]}])
+    end
+    begin
+      vuln = Shards::Audit::GithubClient.new(timeout: 5, api_base: api.base).scan([dep]).first
+      vuln.cvss_score.should eq(8.7)
+      vuln.severity.should eq(Shards::Audit::Severity::High)
+    ensure
+      api.close
+    end
+  end
+end
+
+describe "OSV querybatch responses" do
+  it "rejects a reply without a results array instead of reporting every dependency clean" do
+    api = RecordingApi.new(&.response.print("{}"))
+    begin
+      expect_raises(Shards::Audit::OsvResponseError) { scan_osv(api) }
+    ensure
+      api.close
+    end
+  end
+
+  it "rejects a result entry that is not an object" do
+    api = RecordingApi.new do |ctx|
+      body = ctx.request.body.try(&.gets_to_end) || "{}"
+      count = JSON.parse(body)["queries"].as_a.size
+      ctx.response.print({"results" => Array.new(count) { nil }}.to_json)
+    end
+    begin
+      expect_raises(Shards::Audit::OsvResponseError) { scan_osv(api) }
+    ensure
+      api.close
+    end
+  end
+end
+
+describe "non-finite CVSS scores" do
+  it "drops an Infinity score instead of crashing the JSON report" do
+    api = RecordingApi.new do |ctx|
+      ctx.response.print %([{"ghsa_id":"GHSA-inf","summary":"s","severity":"high","state":"published",
+        "cvss":{"score":"Infinity"},"vulnerabilities":[]}])
+    end
+    begin
+      vuln = Shards::Audit::GithubClient.new(timeout: 5, api_base: api.base).scan([dep]).first
+      vuln.cvss_score.should be_nil
+      vuln.severity.should eq(Shards::Audit::Severity::High)
+    ensure
+      api.close
+    end
+  end
+end
