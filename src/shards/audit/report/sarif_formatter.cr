@@ -52,7 +52,7 @@ module Shards::Audit
       # required, so a clean audit produced an upload it could reject — and
       # an upload with no results array is what *clears* previously reported
       # alerts. Without it, a vulnerability stays flagged after it is fixed.
-      log.runs.each do |run|
+      log.runs.try &.each do |run|
         run.results ||= [] of Sarif::Result
       end
 
