@@ -369,3 +369,56 @@ describe Shards::Audit::GithubParser do
     end
   end
 end
+
+describe "GitHub advisory entries without a usable range" do
+  # One vulnerabilities[] entry with a null range used to be dropped while the
+  # other entries' windows were kept, so the shard counted as unaffected when
+  # the null entry was the one describing it.
+  it "assumes affected when any entry's range is unknown" do
+    body = %([{"ghsa_id":"GHSA-x","vulnerabilities":[
+      {"package":{"name":"other-pkg"},"vulnerable_version_range":"< 1.0.0"},
+      {"package":{"name":"shard"},"vulnerable_version_range":null}]}])
+    vuln = GithubProbe.new.parse(body).first
+    vuln.affected_ranges.should be_empty
+    vuln.affected?("5.0.0").should be_true
+  end
+
+  it "still filters when every entry has a range" do
+    body = %([{"ghsa_id":"GHSA-x","vulnerabilities":[
+      {"vulnerable_version_range":"< 1.0.0"},{"vulnerable_version_range":">= 2.0.0, < 2.1.0"}]}])
+    GithubProbe.new.parse(body).first.affected?("1.5.0").should be_false
+  end
+end
+
+describe "fix version for the installed window" do
+  backport = %([{"ghsa_id":"GHSA-x","vulnerabilities":[
+    {"vulnerable_version_range":"< 1.2.5","first_patched_version":"1.2.5"},
+    {"vulnerable_version_range":">= 1.3.0, < 1.3.2","first_patched_version":"1.3.2"}]}])
+
+  it "names the fix of the window the version is in" do
+    vuln = GithubProbe.new.parse(backport).first
+    vuln.fixed_version_for("1.3.1").should eq("1.3.2")
+    vuln.fixed_version_for("1.0.0").should eq("1.2.5")
+  end
+
+  it "keeps the advisory's own spelling of the same bound" do
+    vuln = OsvProbe.new.parse(%({"id":"OSV-1","affected":[{"ranges":[{"type":"ECOSYSTEM",
+      "events":[{"introduced":"0"},{"fixed":"v1.2.5"},{"introduced":"1.3.0"},{"fixed":"v1.3.2"}]}]}]})).not_nil!
+    vuln.fixed_version_for("1.0.0").should eq("v1.2.5")
+    vuln.fixed_version_for("1.3.1").should eq("1.3.2")
+  end
+
+  it "keeps the listed fix when the window has an inclusive bound" do
+    vuln = GithubProbe.new.parse(%([{"ghsa_id":"GHSA-x","vulnerabilities":[
+      {"vulnerable_version_range":"<= 1.14.0","patched_versions":"1.15.0"}]}])).first
+    vuln.fixed_version_for("1.0.0").should eq("1.15.0")
+  end
+
+  it "is applied by the version filter" do
+    vuln = GithubProbe.new.parse(backport, "router").first
+    dep = Shards::Audit::Dependency.new(name: "router", git_url: "https://github.com/o/router.git", version: "1.3.1")
+    result = Shards::Audit::AuditResult.new
+    Shards::Audit::VulnerabilityFilter.new(Shards::Audit::Config.new, {"router" => dep}).apply([vuln], result)
+    result.vulnerabilities.first.fixed_version.should eq("1.3.2")
+  end
+end

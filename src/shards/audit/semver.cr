@@ -30,24 +30,27 @@ module Shards::Audit
       if dash = s.index('-')
         pre = s[(dash + 1)..]
         s = s[0...dash]
+        # SemVer 2.0.0 §9: dot-separated identifiers of [0-9A-Za-z-]. Free
+        # text such as GitHub's `vulnerable_version_range` "1.0.0 - 1.2.0"
+        # otherwise parsed as 1.0.0 with prerelease " 1.2.0", an exact bound
+        # no real version equals, so every version was judged unaffected.
+        return unless pre.empty? || pre.matches?(PRERELEASE_PATTERN)
       end
 
       parts = s.split('.')
-      return if parts.size < 1 || parts.size > 3
+      return if parts.size > 3
+      # `to_i32?` tolerates surrounding whitespace and a sign ("1. 2.3",
+      # "+1"); a version component is plain digits.
+      return unless parts.all?(&.matches?(/\A[0-9]+\z/))
 
-      major = parts[0].to_i32?
-      return unless major
-
-      minor = parts.size >= 2 ? parts[1].to_i32? : 0
-      return if parts.size >= 2 && minor.nil?
-      minor ||= 0
-
-      patch = parts.size >= 3 ? parts[2].to_i32? : 0
-      return if parts.size >= 3 && patch.nil?
-      patch ||= 0
+      major = parts[0].to_i32? || return
+      minor = parts[1]?.try(&.to_i32?) || (parts.size >= 2 ? return : 0)
+      patch = parts[2]?.try(&.to_i32?) || (parts.size >= 3 ? return : 0)
 
       new(major, minor, patch, pre.presence)
     end
+
+    PRERELEASE_PATTERN = /\A[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*\z/
 
     def <=>(other : Semver) : Int32
       c = major <=> other.major
@@ -88,11 +91,15 @@ module Shards::Audit
       [ids1.size, ids2.size].min.times do |i|
         a = ids1[i]
         b = ids2[i]
-        a_num = a.to_i64?
-        b_num = b.to_i64?
+        # Digit-only identifiers are numeric. `to_i64?` also read "-1" as a
+        # number (it is alphanumeric) and gave up on one past Int64.
+        a_num = a.matches?(/\A[0-9]+\z/)
+        b_num = b.matches?(/\A[0-9]+\z/)
 
         cmp = if a_num && b_num
-                a_num <=> b_num
+                a = a.lstrip('0')
+                b = b.lstrip('0')
+                a.size == b.size ? a <=> b : a.size <=> b.size
               elsif a_num
                 -1
               elsif b_num

@@ -378,3 +378,34 @@ describe "Semver prerelease ordering (SemVer 2.0.0)" do
     (a <=> b).should eq(0)
   end
 end
+
+describe "Shards::Audit::Semver strict parsing" do
+  # SemVer 2.0.0 §2/§9: components are digits, prerelease identifiers are
+  # [0-9A-Za-z-]. `to_i32?` skipped whitespace, so GitHub's free-text
+  # "1.0.0 - 1.2.0" parsed as 1.0.0 with prerelease " 1.2.0" — an exact bound
+  # no real version equals, which filtered the advisory out for everyone.
+  it "rejects text that is not a version" do
+    {"1.0.0 - 1.2.0", "1. 2.3", "1.0.0-rc 1", "1.0.0-rc..1", "1.2.3-α", "1.+2.3"}.each do |s|
+      Shards::Audit::Semver.parse(s).should be_nil
+    end
+  end
+
+  it "keeps a hyphen-range advisory from filtering every version out" do
+    ranges = Shards::Audit::SemverRangeParser.parse_github_range("1.0.0 - 1.2.0")
+    Shards::Audit::Vulnerability.new(id: "GHSA-x", affected_ranges: ranges).affected?("1.1.0").should be_true
+  end
+
+  it "still parses hyphenated prerelease identifiers" do
+    Shards::Audit::Semver.parse("1.0.0-x-y.1").try(&.prerelease).should eq("x-y.1")
+  end
+
+  # §11.4.1: a digits-only identifier compares numerically, however long.
+  it "compares numeric identifiers beyond Int64 numerically" do
+    Shards::Audit::Semver.compare_prerelease("99999999999999999999", "100000000000000000000").should eq(-1)
+  end
+
+  # "-1" contains a hyphen, so it is alphanumeric and outranks any number.
+  it "treats a hyphen-led identifier as alphanumeric" do
+    Shards::Audit::Semver.compare_prerelease("-1", "1").should eq(1)
+  end
+end
