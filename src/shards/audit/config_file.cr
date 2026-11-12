@@ -57,7 +57,12 @@ module Shards::Audit
       # numeric id was dropped without a word. Neither warned, because the
       # warning only fired for a String that failed to parse.
       root = YamlNodes.document_root(content)
-      return new unless root.is_a?(YAML::Nodes::Mapping)
+      # An empty document is an empty config; a list or a bare string is not
+      # a config at all and used to load as one without a word.
+      return new if root.nil? || (root.is_a?(YAML::Nodes::Scalar) && YamlNodes.scalar_value(root).nil?)
+      unless root.is_a?(YAML::Nodes::Mapping)
+        raise YAML::ParseException.new("expected a mapping at the top level", root.start_line + 1, root.start_column + 1)
+      end
 
       ignore = [] of IgnoreEntry
       YamlNodes.sequence_items(YamlNodes.mapping_value(root, "ignore")).each do |entry|

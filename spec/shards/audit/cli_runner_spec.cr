@@ -97,6 +97,48 @@ describe "CLI Runner integration" do
     end
   end
 
+  describe "--config" do
+    it "exits 2 when an explicit config file is missing" do
+      exit_code, _, stderr = run_cli_capture([
+        "--path", File.join(FIXTURES_PATH, "shard.lock.empty"),
+        "--config", "/nonexistent/.shards-audit.yml",
+      ])
+      exit_code.should eq(Shards::Audit::CLI::EXIT_ERROR)
+      stderr.should contain("Error: Config file not found: /nonexistent/.shards-audit.yml")
+    end
+
+    it "exits 2 when an explicit config file is malformed" do
+      {"ignore: [unclosed\n", "- just\n- a list\n"}.each do |content|
+        path = File.tempname("shards-audit", ".yml")
+        File.write(path, content)
+        begin
+          exit_code, _, stderr = run_cli_capture([
+            "--path", File.join(FIXTURES_PATH, "shard.lock.empty"),
+            "--config", path,
+          ])
+          exit_code.should eq(Shards::Audit::CLI::EXIT_ERROR)
+          stderr.should contain("Error: Failed to load config file #{path}")
+        ensure
+          File.delete(path)
+        end
+      end
+    end
+
+    it "only warns about a malformed implicit config file" do
+      dir = File.tempname("shards-audit")
+      Dir.mkdir(dir)
+      File.write(File.join(dir, ".shards-audit.yml"), "- not a mapping\n")
+      File.copy(File.join(FIXTURES_PATH, "shard.lock.empty"), File.join(dir, "shard.lock"))
+      begin
+        exit_code, _, stderr = Dir.cd(dir) { run_cli_capture(["--path", "shard.lock"]) }
+        exit_code.should eq(Shards::Audit::CLI::EXIT_CLEAN)
+        stderr.should contain("Warning: Failed to load config file")
+      ensure
+        FileUtils.rm_rf(dir)
+      end
+    end
+  end
+
   describe "verbose output" do
     it "prints scan details to stderr with --verbose" do
       _, _, stderr = run_cli_capture([
