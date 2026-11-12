@@ -82,14 +82,20 @@ module Shards::Audit
 
       vulns = dig_a(advisory, "vulnerabilities") || return {fixed_version, affected_ranges}
 
+      # An entry whose range is null or unreadable affects versions we cannot
+      # tell. Keeping only the other entries' windows judged the shard
+      # unaffected whenever its own entry was that one, so the whole advisory
+      # falls back to "assume affected", as OSV does for GIT-only entries.
+      unfilterable = false
       vulns.each do |vuln|
-        fixed_version ||= extract_first_patched_version(vuln)
-        if range_str = dig_s(vuln, "vulnerable_version_range")
-          affected_ranges.concat(SemverRangeParser.parse_github_range(range_str))
-        end
+        patched = extract_first_patched_version(vuln)
+        fixed_version ||= patched
+        ranges = SemverRangeParser.parse_github_range(dig_s(vuln, "vulnerable_version_range") || "", patched)
+        unfilterable ||= ranges.empty?
+        affected_ranges.concat(ranges)
       end
 
-      {fixed_version, affected_ranges}
+      {fixed_version, unfilterable ? [] of SemverRange : affected_ranges}
     end
 
     # `first_patched_version` is a bare string in the GitHub REST advisory
