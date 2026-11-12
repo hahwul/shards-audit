@@ -46,6 +46,21 @@ describe "GitHub advisory package matching" do
     one(body, "kemal", "kemalcr/kemal").affected?("1.9.0").should be_false
   end
 
+  it "matches the bare repository name beside a nameless entry" do
+    body = %({"ghsa_id":"GHSA-s","vulnerabilities":[
+      {"package":null,"vulnerable_version_range":"< 0.5.0"},
+      {"package":{"name":"sarif.cr"},"vulnerable_version_range":"< 2.0.0"}]})
+    one(body, "sarif", "hahwul/sarif.cr").affected?("1.0.0").should be_true
+  end
+
+  it "does not take another host or a longer path for owner/repo" do
+    body = %({"ghsa_id":"GHSA-t","vulnerabilities":[
+      {"package":{"name":"kemal"},"vulnerable_version_range":"< 1.0.0"},
+      {"package":{"name":"gitlab.com/kemalcr/kemal"},"vulnerable_version_range":"< 2.0.0"},
+      {"package":{"name":"evil/kemalcr/kemal"},"vulnerable_version_range":"< 2.0.0"}]})
+    one(body, "kemal", "kemalcr/kemal").affected?("1.5.0").should be_false
+  end
+
   it "ignores another package's entry, including its unreadable range" do
     body = %({"ghsa_id":"GHSA-m","vulnerabilities":[
       {"package":{"name":"kemal"},"vulnerable_version_range":"< 1.13.0","patched_versions":"1.13.0"},
@@ -91,6 +106,12 @@ describe "combined GitHub patched versions" do
     body = %({"ghsa_id":"GHSA-q","vulnerabilities":[{"package":{"name":"x"},
       "vulnerable_version_range":">= 1.0.0, < 1.3.0","patched_versions":"1.1.0, 1.3.0"}]})
     one(body, "x", nil).fixed_version_for("1.0.5").should eq("1.3.0")
+  end
+
+  it "never recommends a version inside another affected window" do
+    body = %({"ghsa_id":"GHSA-u","vulnerabilities":[{"package":{"name":"x"},
+      "vulnerable_version_range":"< 1.1.5, >= 1.2.0, < 1.2.3","patched_versions":"1.2.1, 1.3.0"}]})
+    one(body, "x", nil).fixed_version_for("1.0.0").should eq("1.3.0")
   end
 
   it "picks per window for a multi-window range" do

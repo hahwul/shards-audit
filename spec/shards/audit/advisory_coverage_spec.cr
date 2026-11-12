@@ -158,6 +158,17 @@ describe "OSV affected[].versions" do
     end
   end
 
+  it "does not let another entry's versions list decide a bound-less entry" do
+    api = osv_api(%({"id":"OSV-1","affected":[
+      {"package":{"ecosystem":"npm","name":"router"},"versions":["1.0.0"]},
+      {"package":{"ecosystem":"GIT","name":"https://github.com/o/router.cr"}}]}))
+    begin
+      scan_osv(api).first.affected?("2.3.0").should be_true
+    ensure
+      api.close
+    end
+  end
+
   it "does not narrow an unconstrained record when merged with a versions-only one" do
     a = Shards::Audit::Vulnerability.new(id: "GHSA-x", dependency_name: "router")
     b = Shards::Audit::Vulnerability.new(id: "GHSA-x", dependency_name: "router", affected_versions: ["1.5.0"])

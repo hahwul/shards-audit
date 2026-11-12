@@ -110,15 +110,17 @@ module Shards::Audit
     end
 
     # An entry applies when it names no package, names the shard, or names
-    # its source repository as `owner/repo`, optionally behind a host
-    # (`github.com/owner/repo`, `https://github.com/owner/repo`).
+    # its source repository: `owner/repo`, the same behind a GitHub host
+    # (`github.com/owner/repo`, `https://github.com/owner/repo.git`), or
+    # the bare repository name (`sarif.cr`).
     private def package_applies?(name : String?, dep_name : String, owner_repo : String?) : Bool
       name = name.try(&.strip.downcase).presence || return true
       return true if name == dep_name.downcase
       return false unless owner_repo
-      segments = name.sub(%r{\A[a-z][a-z0-9+.-]*://}, "").chomp(".git").split('/', remove_empty: true)
-      segments.shift if segments.size == 3
-      segments.join('/') == owner_repo.downcase
+      owner_repo = owner_repo.downcase
+      return true if name == owner_repo.partition('/')[2]
+      repo = Dependency::GITHUB_URL_PATTERN.match(name).try { |m| "#{m[1]}/#{m[2]}" } || name.chomp(".git")
+      repo == owner_repo
     end
 
     # `first_patched_version` is a bare string in the GitHub REST advisory

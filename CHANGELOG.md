@@ -21,14 +21,15 @@
   Repository advisory package names are free-form (`kemal`,
   `kemalcr/kemal`, `crystal`). An entry now applies only when it names no
   package, names the shard, or names the shard's `owner/repo` (any case,
-  optionally behind a host such as `github.com/`). A null or unreadable range
+  optionally behind a GitHub host such as `github.com/`), or its bare
+  repository name (`sarif.cr`). A null or unreadable range
   forces "assume affected" only when its entry applies. When no entry names
   the shard, every entry is still used, as before.
 - **A combined patched-versions list was shown verbatim.** GitHub writes a
   fix backported to several lines as `"1.21.1, 1.22.0"` (for example
   GHSA-fj8w-2r88-5v7w), and the report said "Upgrade to >= 1.21.1, 1.22.0".
-  The lowest listed version above the installed one that leaves its window is
-  shown instead.
+  When the installed version is known, the lowest listed version above it
+  that no affected window contains is shown instead.
 
 - **GitHub repositories whose name contains a dot were addressed incorrectly.**
   The owner/repo pattern stopped at the first dot, so `hahwul/sarif.cr` became
