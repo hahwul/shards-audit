@@ -261,12 +261,12 @@ describe Shards::Audit::ConfigFile do
   end
 
   describe "malformed config files" do
-    it "returns an empty config for a top-level list" do
+    # Reported as a parse error (a warning for the discovered config, exit 2
+    # for an explicit --config) rather than loading as an empty config.
+    it "rejects a top-level list" do
       path = write_tmp("cfg.yml", "- a\n- b\n")
       begin
-        config = Shards::Audit::ConfigFile.load(path)
-        config.ignore.should be_empty
-        config.severity_threshold.should be_nil
+        expect_raises(YAML::ParseException, /mapping/) { Shards::Audit::ConfigFile.load(path) }
       ensure
         File.delete(path) rescue nil
       end

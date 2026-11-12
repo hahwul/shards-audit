@@ -134,14 +134,56 @@ describe "OSV affected[].versions" do
     end
   end
 
-  it "keeps the conservative answer when the advisory carries no ranges" do
-    api = osv_api(%({"id":"OSV-1","affected":[{"versions":["1.0.0"]}]}))
+  # OSV §affected[].versions enumerates the affected versions, so a
+  # versions-only entry clears every version it does not list. It used to
+  # match every version.
+  it "judges a versions-only advisory by its list" do
+    api = osv_api(%({"id":"OSV-1","affected":[{"versions":["v1.0.0", "1.1.0"]}]}))
     begin
-      # No ranges at all still means "we could not tell, assume affected".
+      vuln = scan_osv(api).first
+      vuln.affected?("9.9.9").should be_false
+      vuln.affected?("1.0.0").should be_true
+      vuln.affected?("v1.1.0").should be_true
+    ensure
+      api.close
+    end
+  end
+
+  it "still assumes affected when the advisory has neither ranges nor versions" do
+    api = osv_api(%({"id":"OSV-1","affected":[{"package":{"ecosystem":"GIT","name":"x"}}]}))
+    begin
       scan_osv(api).first.affected?("9.9.9").should be_true
     ensure
       api.close
     end
+  end
+
+  it "does not let another entry's versions list decide a bound-less entry" do
+    api = osv_api(%({"id":"OSV-1","affected":[
+      {"package":{"ecosystem":"npm","name":"router"},"versions":["1.0.0"]},
+      {"package":{"ecosystem":"GIT","name":"https://github.com/o/router.cr"}}]}))
+    begin
+      scan_osv(api).first.affected?("2.3.0").should be_true
+    ensure
+      api.close
+    end
+  end
+
+  it "does not narrow an unconstrained record when merged with a versions-only one" do
+    a = Shards::Audit::Vulnerability.new(id: "GHSA-x", dependency_name: "router")
+    b = Shards::Audit::Vulnerability.new(id: "GHSA-x", dependency_name: "router", affected_versions: ["1.5.0"])
+    a.merge(b).affected?("9.9.9").should be_true
+    b.merge(a).affected?("9.9.9").should be_true
+  end
+
+  it "unions a versions-only record with a ranged one on merge" do
+    a = Shards::Audit::Vulnerability.new(id: "GHSA-x", dependency_name: "router", affected_versions: ["1.5.0"])
+    b = Shards::Audit::Vulnerability.new(id: "GHSA-x", dependency_name: "router",
+      affected_ranges: [Shards::Audit::SemverRange.new(fixed: Shards::Audit::Semver.parse("1.0.0"))])
+    merged = a.merge(b)
+    merged.affected?("1.5.0").should be_true
+    merged.affected?("0.9.0").should be_true
+    merged.affected?("2.0.0").should be_false
   end
 
   it "carries the enumerated versions through a merge" do

@@ -5,7 +5,9 @@ module Shards::Audit
     include JsonAccess
     include CvssParser
 
-    private def parse_advisories(body : String, dep_name : String) : Array(Vulnerability)
+    # `owner_repo` is the shard's GitHub source; the advisories came from
+    # that repository's endpoint.
+    private def parse_advisories(body : String, dep_name : String, owner_repo : String? = nil) : Array(Vulnerability)
       data = JSON.parse(body)
       advisories = data.as_a? || return [] of Vulnerability
 
@@ -46,7 +48,7 @@ module Shards::Audit
           end
         end
 
-        fixed_version, affected_ranges = parse_advisory_vulnerabilities(advisory)
+        fixed_version, affected_ranges = parse_advisory_vulnerabilities(advisory, dep_name, owner_repo)
 
         Vulnerability.new(
           id: ghsa_id,
@@ -76,11 +78,20 @@ module Shards::Audit
       state.nil? || state == "published"
     end
 
-    private def parse_advisory_vulnerabilities(advisory : JSON::Any) : {String?, Array(SemverRange)}
+    private def parse_advisory_vulnerabilities(advisory : JSON::Any, dep_name : String,
+                                               owner_repo : String?) : {String?, Array(SemverRange)}
       fixed_version = nil
       affected_ranges = [] of SemverRange
 
       vulns = dig_a(advisory, "vulnerabilities") || return {fixed_version, affected_ranges}
+
+      # A repository advisory can name several packages, and the names are
+      # free-form (`kemal`, `kemalcr/kemal`, `crystal`). Judging the shard
+      # against another package's range could both hide and invent a hit, so
+      # only the entries naming this shard count. When none does, the repo
+      # still returned the advisory, so keep every entry (conservative).
+      applying = vulns.select { |vuln| package_applies?(dig_s(vuln, "package", "name"), dep_name, owner_repo) }
+      vulns = applying unless applying.empty?
 
       # An entry whose range is null or unreadable affects versions we cannot
       # tell. Keeping only the other entries' windows judged the shard
@@ -96,6 +107,20 @@ module Shards::Audit
       end
 
       {fixed_version, unfilterable ? [] of SemverRange : affected_ranges}
+    end
+
+    # An entry applies when it names no package, names the shard, or names
+    # its source repository: `owner/repo`, the same behind a GitHub host
+    # (`github.com/owner/repo`, `https://github.com/owner/repo.git`), or
+    # the bare repository name (`sarif.cr`).
+    private def package_applies?(name : String?, dep_name : String, owner_repo : String?) : Bool
+      name = name.try(&.strip.downcase).presence || return true
+      return true if name == dep_name.downcase
+      return false unless owner_repo
+      owner_repo = owner_repo.downcase
+      return true if name == owner_repo.partition('/')[2]
+      repo = Dependency::GITHUB_URL_PATTERN.match(name).try { |m| "#{m[1]}/#{m[2]}" } || name.chomp(".git")
+      repo == owner_repo
     end
 
     # `first_patched_version` is a bare string in the GitHub REST advisory

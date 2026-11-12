@@ -116,7 +116,7 @@ module Shards::Audit
       if cache = @cache
         if cached = cache.get(cache_key)
           log("Cache hit for #{owner_repo}")
-          return parse_advisories(cached, dep_name)
+          return parse_advisories(cached, dep_name, owner_repo)
         end
       end
 
@@ -156,7 +156,7 @@ module Shards::Audit
         cache.set(cache_key, all_advisories)
       end
 
-      parse_advisories(all_advisories, dep_name)
+      parse_advisories(all_advisories, dep_name, owner_repo)
     end
 
     # Where a Crystal shard's advisories actually live.

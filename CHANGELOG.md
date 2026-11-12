@@ -2,7 +2,34 @@
 
 ## Unreleased
 
+### Breaking
+
+- **`--config PATH` must point at a usable file.** A missing or malformed
+  explicit config used to print a warning and run without it, so CI audited
+  without the ignores and threshold it asked for. It now exits 2. The
+  automatically discovered `.shards-audit.yml` still only warns. A config
+  whose top level is not a mapping (a list, a bare string) now counts as
+  malformed instead of loading as an empty config.
+- **OSV `versions`-only entries match only the versions they list.** Per the
+  OSV schema `affected[].versions` enumerates the affected versions, but an
+  entry with `versions` and no `ranges` matched every version. A `v` prefix is
+  ignored when comparing. Ranges plus versions remain a union.
+
 ### Fixed
+
+- **GitHub advisory entries for other packages were applied to the shard.**
+  Repository advisory package names are free-form (`kemal`,
+  `kemalcr/kemal`, `crystal`). An entry now applies only when it names no
+  package, names the shard, or names the shard's `owner/repo` (any case,
+  optionally behind a GitHub host such as `github.com/`), or its bare
+  repository name (`sarif.cr`). A null or unreadable range
+  forces "assume affected" only when its entry applies. When no entry names
+  the shard, every entry is still used, as before.
+- **A combined patched-versions list was shown verbatim.** GitHub writes a
+  fix backported to several lines as `"1.21.1, 1.22.0"` (for example
+  GHSA-fj8w-2r88-5v7w), and the report said "Upgrade to >= 1.21.1, 1.22.0".
+  When the installed version is known, the lowest listed version above it
+  that no affected window contains is shown instead.
 
 - **GitHub repositories whose name contains a dot were addressed incorrectly.**
   The owner/repo pattern stopped at the first dot, so `hahwul/sarif.cr` became

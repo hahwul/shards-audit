@@ -132,6 +132,8 @@ module Shards::Audit
       exact_versions = [] of String
       # True once we meet an `affected[]` entry we cannot evaluate locally.
       unfilterable = false
+      # True once we meet an entry with neither ranges nor versions.
+      boundless = false
 
       affected_arr = dig_a(data, "affected") || return {fixed_version, all_semver_ranges, exact_versions}
 
@@ -148,7 +150,11 @@ module Shards::Audit
           end
         end
 
-        ranges = dig_a(affected, "ranges") || next
+        ranges = dig_a(affected, "ranges")
+        if ranges.nil? || ranges.empty?
+          boundless = true unless listed.try(&.present?)
+          next
+        end
 
         # A GIT range's events hold commit hashes. Parsing them as SemVer
         # yields nil bounds, and a nil-bounded range matches *every*
@@ -163,7 +169,7 @@ module Shards::Audit
           # entry's ecosystem range (a Go or npm packaging of the same code,
           # whose version numbers need not line up with the shard's git
           # tags) would discard a real finding. Mark it unevaluable instead.
-          unfilterable = true unless ranges.empty?
+          unfilterable = true
           next
         end
 
@@ -174,8 +180,13 @@ module Shards::Audit
         end
       end
 
-      # Empty ranges make `Vulnerability#affected?` answer true, which is the
-      # conservative result we want when part of the advisory was opaque.
+      # A bound-less entry must not be decided by a sibling's `versions`
+      # list alone: that list would clear every version the entry may cover
+      # (it is often the shard's own entry, beside another packaging's).
+      unfilterable ||= boundless && all_semver_ranges.empty? && exact_versions.present?
+
+      # No ranges and no versions make `Vulnerability#affected?` answer true,
+      # the conservative result we want when part of the advisory was opaque.
       return {fixed_version, [] of SemverRange, [] of String} if unfilterable
 
       {fixed_version, all_semver_ranges, exact_versions}

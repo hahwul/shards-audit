@@ -1,7 +1,11 @@
 module Shards::Audit
   class CLI
-    private def self.load_config_file(config : Config, config_path : String?, no_config : Bool) : Nil
-      return if no_config
+    # False when an explicitly requested config could not be used. A typo in
+    # `--config` used to warn and carry on without the user's ignores and
+    # threshold, so CI ran a different audit than the one asked for. The
+    # implicitly discovered file only warns, as before.
+    private def self.load_config_file(config : Config, config_path : String?, no_config : Bool) : Bool
+      return true if no_config
 
       path = config_path || ConfigFile.find
       if path && File.exists?(path)
@@ -23,15 +27,21 @@ module Shards::Audit
             config.severity_threshold = cf.severity_threshold
           end
         rescue ex : YAML::ParseException | IO::Error
+          if config_path
+            stderr.puts "Error: Failed to load config file #{path}: #{ex.message}"
+            return false
+          end
           stderr.puts "Warning: Failed to load config file #{path}: #{ex.message}"
         end
       elsif config_path
-        stderr.puts "Warning: Config file not found: #{config_path}"
+        stderr.puts "Error: Config file not found: #{config_path}"
+        return false
       end
+      true
     end
 
     private def self.run_audit(config : Config, config_path : String? = nil, no_config : Bool = false) : Int32
-      load_config_file(config, config_path, no_config)
+      return EXIT_ERROR unless load_config_file(config, config_path, no_config)
 
       # Parse lockfile
       parse_result = begin

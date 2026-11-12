@@ -97,6 +97,10 @@ severity_threshold: medium
 An ignore entry stays suppressed through the whole of its `expires` date and
 becomes active again the next day.
 
+A config file passed with `--config` must exist and be a valid YAML mapping,
+or the run exits 2. A file found automatically that cannot be read only
+produces a warning.
+
 ## Proxies
 
 Outbound requests honour the conventional proxy environment variables. HTTPS
