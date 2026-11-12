@@ -185,8 +185,8 @@ describe Shards::Audit::TableFormatter do
         Shards::Audit::Vulnerability.new(
           id: "GHSA-\e[2Jxxxx",
           aliases: ["CVE-\u009b31m1"],
-          summary: "Bad\e]0;pwned\a thing\r\nFix: none needed",
-          fixed_version: "1.0\e[8m",
+          summary: "Bad\e]0;pwned\a thing\r\nFix: none needed\u0085end",
+          fixed_version: "1.\u202E0.2\e[8m",
           dependency_name: "kemal",
           source: "GitHub",
           url: "https://example.com/\e]8;;https://evil\e\\x"
@@ -199,8 +199,9 @@ describe Shards::Audit::TableFormatter do
         Shards::Audit::TableFormatter.new(no_color: no_color).format(result, io)
         output = io.to_s
         # Only the formatter's own SGR codes may remain.
-        output.gsub(/\e\[[0-9;]*m/, "").should_not match(/[\x00-\x08\x0b-\x1f\x7f\x{80}-\x{9f}]/)
-        output.should contain("thing  Fix: none needed")
+        output.gsub(/\e\[[0-9;]*m/, "").should_not match(/[\x00-\x08\x0b-\x1f\x7f\x{80}-\x{9f}\x{202a}-\x{202e}\x{2066}-\x{2069}]/)
+        output.should contain("thing  Fix: none needed end")
+        output.should contain("Upgrade to >= 1.0.2")
         output.lines.count(&.starts_with?("│ Fix:")).should eq(1) if no_color
       end
     end

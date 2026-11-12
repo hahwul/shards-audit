@@ -81,17 +81,14 @@ module Shards::Audit
       # Check if all sources failed
       if result.errors.size >= Scanner::SOURCE_COUNT && result.vulnerabilities.empty?
         stderr.puts "Error: All vulnerability sources failed."
-        result.errors.each { |e| stderr.puts "  - #{e}" }
+        result.errors.each { |e| stderr.puts "  - #{TableFormatter.plain(e)}" }
         stderr.puts
         stderr.puts "Suggestions:"
         stderr.puts "  - Check your network connection"
         stderr.puts "  - If behind a proxy, ensure HTTP_PROXY/HTTPS_PROXY are set"
         stderr.puts "  - Set --github-token or GITHUB_TOKEN for GitHub API access"
         stderr.puts "  - Run with --verbose for more details"
-        # README: "Pass --exit-zero to opt out" of the incomplete-audit exit.
-        # A total failure ignored it, unlike a partial one, and printed no
-        # report, so `-f json --exit-zero` handed the pipeline an empty stdout.
-        return EXIT_ERROR unless config.exit_zero
+        return EXIT_ERROR
       end
 
       emit_report(config, result)
@@ -99,7 +96,7 @@ module Shards::Audit
       code = exit_code_for(config, result)
       if code == EXIT_ERROR
         stderr.puts "Error: the audit was incomplete, so no result can be reported."
-        result.errors.each { |e| stderr.puts "  - #{e}" }
+        result.errors.each { |e| stderr.puts "  - #{TableFormatter.plain(e)}" }
         stderr.puts "Use --exit-zero to ignore this."
       end
       code

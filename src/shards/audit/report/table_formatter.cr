@@ -70,20 +70,29 @@ module Shards::Audit
       end
     end
 
+    LINE_BREAKS = {'\n', '\r', '\t', '\u0085', '\u2028', '\u2029'}
+    # Bidi embeddings, overrides and isolates reorder the rest of the line.
+    BIDI_CONTROLS = ('\u202A'..'\u202E').to_a + ('\u2066'..'\u2069').to_a
+
     # Advisory text is written by whoever publishes the advisory, so an ESC
-    # in a summary drove the reader's terminal and a newline broke out of the
-    # box. Line breaks and tabs become spaces; other control characters
-    # (C0, DEL, C1) are dropped.
-    private def plain(text : String) : String
-      String.build do |io|
-        text.each_char do |char|
-          if char.in?('\n', '\r', '\t')
-            io << ' '
-          elsif !char.control?
-            io << char
-          end
+    # in a summary drove the reader's terminal, a bidi override could make
+    # the printed fix version differ from the real one, and a newline broke
+    # out of the box. Line breaks and tabs become spaces; other control
+    # characters (C0, DEL, C1) and bidi controls are dropped.
+    def self.plain(text : String) : String
+      text.gsub do |char|
+        if LINE_BREAKS.includes?(char)
+          ' '
+        elsif char.control? || BIDI_CONTROLS.includes?(char)
+          ""
+        else
+          char
         end
       end
+    end
+
+    private def plain(text : String) : String
+      TableFormatter.plain(text)
     end
 
     private def colorize(text : String, code : String) : String

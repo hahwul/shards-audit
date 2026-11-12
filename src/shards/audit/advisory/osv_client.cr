@@ -151,10 +151,10 @@ module Shards::Audit
       if cache = @cache
         if cached = cache.get(cache_key)
           begin
-            vuln = parse_vulnerability(cached)
+            vuln = parse_reply(cached)
             log("Cache hit for #{vuln_id}")
             return vuln
-          rescue JSON::ParseException | TypeCastError
+          rescue JSON::ParseException | AdvisoryRequestError
             # An interrupted write or an older version's entry. A miss, not
             # a failure pinned for the whole TTL.
             log("Discarding unreadable cache entry for #{vuln_id}")
@@ -163,16 +163,26 @@ module Shards::Audit
       end
 
       log("Fetching OSV vulnerability: #{vuln_id}")
-      response = make_request("GET", "/v1/vulns/#{vuln_id}")
+      # The id comes from the server, so it must not reshape the path.
+      response = make_request("GET", "/v1/vulns/#{URI.encode_path_segment(vuln_id)}")
 
       # Parse before caching. Caching first kept a bad 200 (a captive portal
       # page, a truncated body) on disk and failed every run until the TTL.
-      vuln = parse_vulnerability(response)
+      vuln = parse_reply(response)
       @cache.try &.set(cache_key, response)
       vuln
     rescue ex : IO::Error | Socket::ConnectError | JSON::ParseException | TypeCastError | AdvisoryRequestError
       log("Failed to fetch vulnerability #{vuln_id}: #{ex.message}")
       raise OsvLookupError.new("#{vuln_id}: #{ex.message || ex.class.name}")
+    end
+
+    # nil only for a withdrawn advisory. A reply with no `id` (`{}`, a
+    # proxy's `{"message":...}`) is not an answer: answering nil dropped the
+    # advisory the batch query reported, without an error.
+    private def parse_reply(body : String) : Vulnerability?
+      vuln = parse_vulnerability(body)
+      return vuln if vuln || dig_s(JSON.parse(body), "id")
+      raise AdvisoryRequestError.new("OSV API returned a reply that is not an advisory")
     end
 
     MAX_CONCURRENCY = 10

@@ -17,18 +17,19 @@
 
 ### Fixed
 
-- **`--exit-zero` was ignored when every source failed.** A partial outage
-  exited 0 with a report, but a total one exited 2 and printed nothing, so
-  `-f json --exit-zero` gave the next pipeline step an empty stdout. The
-  README already promised `--exit-zero` opts out of the incomplete-audit exit.
 - **One bad OSV reply was cached for the whole TTL.** The reply was written
   to the cache before it was parsed, so a captive-portal page or truncated
   body failed every run for 24 hours. Replies are now cached only after they
-  parse, and an unreadable cache entry (OSV or GitHub) is refetched.
+  parse, and an unreadable cache entry (OSV or GitHub) is refetched. A reply
+  without an `id` (`{}`, a proxy's error object) used to drop the reported
+  advisory silently; it now counts as a failed lookup. The server-supplied id
+  is percent-encoded into the lookup path.
 - **Advisory text could drive the terminal.** The table printed summaries,
   ids and URLs raw, so an ESC sequence in an advisory could retitle the
-  terminal, hide lines or plant links, and a newline broke out of the box.
-  Control characters are now dropped; line breaks and tabs become spaces.
+  terminal, hide lines or plant links, a bidi override could make the printed
+  fix version differ from the real one, and a newline broke out of the box.
+  Control and bidi characters are now dropped, and line breaks and tabs become
+  spaces. The same applies to the source errors listed on stderr.
 - **An invalid UTF-8 byte in an OSV alias crashed `-f yaml`.** Every other
   advisory string was already scrubbed; aliases were not, and the YAML
   emitter killed the process with SIGTRAP (not exit 2).
