@@ -77,7 +77,7 @@ module Shards::Audit
       return if dig_s(data, "withdrawn").presence
 
       summary = dig_s(data, "summary") || dig_s(data, "details") || ""
-      aliases = dig_a(data, "aliases").try(&.compact_map(&.as_s?)) || [] of String
+      aliases = dig_a(data, "aliases").try(&.compact_map(&.as_s?.try(&.scrub))) || [] of String
 
       severity, cvss_score = extract_severity(data)
       fixed_version, all_semver_ranges, affected_versions = extract_affected_ranges(data)

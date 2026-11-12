@@ -173,5 +173,37 @@ describe Shards::Audit::TableFormatter do
       output.should contain("Warning:")
       output.should contain("OSV scan failed")
     end
+
+    # Advisory text is written by whoever publishes the advisory. Printed
+    # raw, an ESC sequence in a summary drove the reader's terminal (retitle
+    # it, hide lines, plant OSC 8 links), and a newline broke out of the box.
+    it "does not pass control characters from advisory text to the terminal" do
+      result = Shards::Audit::AuditResult.new
+      result.dependencies_scanned = 1
+      result.vulnerabilities_found = 1
+      result.vulnerabilities = [
+        Shards::Audit::Vulnerability.new(
+          id: "GHSA-\e[2Jxxxx",
+          aliases: ["CVE-\u009b31m1"],
+          summary: "Bad\e]0;pwned\a thing\r\nFix: none needed\u0085end",
+          fixed_version: "1.\u202E0.2\e[8m",
+          dependency_name: "kemal",
+          source: "GitHub",
+          url: "https://example.com/\e]8;;https://evil\e\\x"
+        ),
+      ]
+      result.errors = ["boom\e[2K"]
+
+      [true, false].each do |no_color|
+        io = IO::Memory.new
+        Shards::Audit::TableFormatter.new(no_color: no_color).format(result, io)
+        output = io.to_s
+        # Only the formatter's own SGR codes may remain.
+        output.gsub(/\e\[[0-9;]*m/, "").should_not match(/[\x00-\x08\x0b-\x1f\x7f\x{80}-\x{9f}\x{202a}-\x{202e}\x{2066}-\x{2069}]/)
+        output.should contain("thing  Fix: none needed end")
+        output.should contain("Upgrade to >= 1.0.2")
+        output.lines.count(&.starts_with?("│ Fix:")).should eq(1) if no_color
+      end
+    end
   end
 end

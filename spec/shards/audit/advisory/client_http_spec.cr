@@ -264,6 +264,25 @@ describe Shards::Audit::GithubClient do
         FileUtils.rm_rf(cache_dir)
       end
     end
+
+    it "refetches when the cached entry does not parse" do
+      handler = ApiHandler.new do |ctx, _|
+        ctx.response.print %([{"ghsa_id":"GHSA-aaaa-bbbb-cccc","summary":"x"}])
+      end
+
+      cache_dir = File.join(Dir.tempdir, "shards-audit-spec-#{Random.rand(1_000_000)}")
+      begin
+        cache = Shards::Audit::Cache.new(cache_dir, 3600)
+        cache.set("github/repo-advisories/o/one.json", %([{"ghsa_id":"GHSA-aa))
+        with_api(handler) do |api|
+          client = Shards::Audit::GithubClient.new(timeout: 5, api_base: api.base, cache: cache)
+          client.scan(github_deps("one")).map(&.id).should eq(["GHSA-aaaa-bbbb-cccc"])
+          client.errors.should be_empty
+        end
+      ensure
+        FileUtils.rm_rf(cache_dir)
+      end
+    end
   end
 
   describe "credentials" do
@@ -283,6 +302,104 @@ describe Shards::Audit::GithubClient do
 end
 
 describe Shards::Audit::OsvClient do
+  describe "advisory cache" do
+    # The raw reply was written to the cache before it was parsed, so one
+    # bad 200 (a captive portal page, a truncated body) was then served from
+    # disk for the whole TTL and failed every run until it expired.
+    it "does not cache a reply that does not parse, and retries it next run" do
+      bodies = ["<html>captive portal</html>", %({"id":"OSV-1","summary":"boom"})]
+      handler = ApiHandler.new do |ctx, _|
+        if ctx.request.resource.includes?("querybatch")
+          ctx.response.print %({"results":[{"vulns":[{"id":"OSV-1"}]}]})
+        else
+          ctx.response.print bodies.shift
+        end
+      end
+
+      cache_dir = File.join(Dir.tempdir, "shards-audit-spec-#{Random.rand(1_000_000)}")
+      begin
+        with_api(handler) do |api|
+          cache = Shards::Audit::Cache.new(cache_dir, 3600)
+          first = Shards::Audit::OsvClient.new(timeout: 5, api_base: api.base, cache: cache)
+          first.scan(github_deps("one")).should be_empty
+          first.errors.should_not be_empty
+
+          second = Shards::Audit::OsvClient.new(timeout: 5, api_base: api.base, cache: cache)
+          second.scan(github_deps("one")).map(&.id).should eq(["OSV-1"])
+          second.errors.should be_empty
+        end
+      ensure
+        FileUtils.rm_rf(cache_dir)
+      end
+    end
+
+    # Valid JSON that is not an advisory (`{}`, a proxy's error object)
+    # parsed to nil, which dropped the reported advisory without an error and
+    # was cached for the TTL.
+    it "treats a reply without an id as a failed lookup and does not cache it" do
+      handler = ApiHandler.new do |ctx, _|
+        if ctx.request.resource.includes?("querybatch")
+          ctx.response.print %({"results":[{"vulns":[{"id":"OSV-1"}]}]})
+        else
+          ctx.response.print %({"message":"blocked"})
+        end
+      end
+
+      cache_dir = File.join(Dir.tempdir, "shards-audit-spec-#{Random.rand(1_000_000)}")
+      begin
+        cache = Shards::Audit::Cache.new(cache_dir, 3600)
+        with_api(handler) do |api|
+          client = Shards::Audit::OsvClient.new(timeout: 5, api_base: api.base, cache: cache)
+          client.scan(github_deps("one")).should be_empty
+          client.errors.join.should contain("not an advisory")
+          cache.get("osv/vulns/OSV-1.json").should be_nil
+        end
+      ensure
+        FileUtils.rm_rf(cache_dir)
+      end
+    end
+
+    it "encodes the server-supplied id into the lookup path" do
+      handler = ApiHandler.new do |ctx, _|
+        if ctx.request.resource.includes?("querybatch")
+          ctx.response.print %({"results":[{"vulns":[{"id":"../x?y"}]}]})
+        else
+          ctx.response.print %({"id":"../x?y"})
+        end
+      end
+
+      with_api(handler) do |api|
+        Shards::Audit::OsvClient.new(timeout: 5, api_base: api.base).scan(github_deps("one"))
+        api.requests.last.should eq("GET /v1/vulns/..%2Fx%3Fy")
+      end
+    end
+
+    # A cache file that no longer parses (an interrupted write, or one left
+    # by an older version) must be a miss, not a hard failure for the TTL.
+    it "refetches when the cached entry does not parse" do
+      handler = ApiHandler.new do |ctx, _|
+        if ctx.request.resource.includes?("querybatch")
+          ctx.response.print %({"results":[{"vulns":[{"id":"OSV-1"}]}]})
+        else
+          ctx.response.print %({"id":"OSV-1","summary":"boom"})
+        end
+      end
+
+      cache_dir = File.join(Dir.tempdir, "shards-audit-spec-#{Random.rand(1_000_000)}")
+      begin
+        cache = Shards::Audit::Cache.new(cache_dir, 3600)
+        cache.set("osv/vulns/OSV-1.json", %({"id":"OSV-1","sum))
+        with_api(handler) do |api|
+          client = Shards::Audit::OsvClient.new(timeout: 5, api_base: api.base, cache: cache)
+          client.scan(github_deps("one")).map(&.id).should eq(["OSV-1"])
+          client.errors.should be_empty
+        end
+      ensure
+        FileUtils.rm_rf(cache_dir)
+      end
+    end
+  end
+
   describe "querybatch mapping" do
     it "maps results back to the querying dependency" do
       handler = ApiHandler.new do |ctx, requests|

@@ -42,18 +42,18 @@ module Shards::Audit
       # Severity with CVSS score: "HIGH (7.5) GHSA-xxxx"
       score_str = vuln.cvss_score ? " (#{vuln.cvss_score})" : ""
       severity_str = colorize("#{vuln.severity.label}#{score_str}", vuln.severity.color_code)
-      io.puts "#{colorize("┌", DIM)} #{severity_str} #{colorize(vuln.id, BOLD)}"
-      io.puts "#{colorize("│", DIM)} #{field("Package")}#{vuln.dependency_name}"
-      io.puts "#{colorize("│", DIM)} #{field("Summary")}#{vuln.summary}" unless vuln.summary.empty?
+      io.puts "#{colorize("┌", DIM)} #{severity_str} #{colorize(plain(vuln.id), BOLD)}"
+      io.puts "#{colorize("│", DIM)} #{field("Package")}#{plain(vuln.dependency_name)}"
+      io.puts "#{colorize("│", DIM)} #{field("Summary")}#{plain(vuln.summary)}" unless vuln.summary.empty?
       if fixed = vuln.fixed_version
-        io.puts "#{colorize("│", DIM)} #{field("Fix")}Upgrade to >= #{fixed}"
+        io.puts "#{colorize("│", DIM)} #{field("Fix")}Upgrade to >= #{plain(fixed)}"
       end
       if url = vuln.url
-        io.puts "#{colorize("│", DIM)} #{field("URL")}#{url}"
+        io.puts "#{colorize("│", DIM)} #{field("URL")}#{plain(url)}"
       end
-      io.puts "#{colorize("│", DIM)} #{field("Source")}#{vuln.source}"
+      io.puts "#{colorize("│", DIM)} #{field("Source")}#{plain(vuln.source)}"
       unless vuln.aliases.empty?
-        io.puts "#{colorize("│", DIM)} #{field("Aliases")}#{vuln.aliases.join(", ")}"
+        io.puts "#{colorize("│", DIM)} #{field("Aliases")}#{plain(vuln.aliases.join(", "))}"
       end
       io.puts "#{colorize("└", DIM)}"
     end
@@ -66,8 +66,33 @@ module Shards::Audit
       return if result.errors.empty?
       io.puts
       result.errors.each do |err|
-        io.puts colorize("Warning: #{err}", "\e[33m") # yellow
+        io.puts colorize("Warning: #{plain(err)}", "\e[33m") # yellow
       end
+    end
+
+    LINE_BREAKS = {'\n', '\r', '\t', '\u0085', '\u2028', '\u2029'}
+    # Bidi embeddings, overrides and isolates reorder the rest of the line.
+    BIDI_CONTROLS = ('\u202A'..'\u202E').to_a + ('\u2066'..'\u2069').to_a
+
+    # Advisory text is written by whoever publishes the advisory, so an ESC
+    # in a summary drove the reader's terminal, a bidi override could make
+    # the printed fix version differ from the real one, and a newline broke
+    # out of the box. Line breaks and tabs become spaces; other control
+    # characters (C0, DEL, C1) and bidi controls are dropped.
+    def self.plain(text : String) : String
+      text.gsub do |char|
+        if LINE_BREAKS.includes?(char)
+          ' '
+        elsif char.control? || BIDI_CONTROLS.includes?(char)
+          ""
+        else
+          char
+        end
+      end
+    end
+
+    private def plain(text : String) : String
+      TableFormatter.plain(text)
     end
 
     private def colorize(text : String, code : String) : String

@@ -116,6 +116,15 @@ describe Shards::Audit::OsvParser do
       vuln = OsvParserProbe.new.parse(%({"id":"OSV-1","aliases":["CVE-1",null,7]}))
       vuln.not_nil!.aliases.should eq(["CVE-1"])
     end
+
+    # Every other advisory string goes through `dig_s`, which scrubs; the
+    # aliases did not, so one invalid byte there still reached `to_yaml`
+    # and killed the process with SIGTRAP.
+    it "replaces invalid UTF-8 in aliases" do
+      vuln = OsvParserProbe.new.parse(%({"id":"OSV-1","aliases":["CVE-\xFF1"]})).not_nil!
+      vuln.aliases.should eq(["CVE-\uFFFD1"])
+      vuln.all_ids.all?(&.valid_encoding?).should be_true
+    end
   end
 
   describe "range typing" do

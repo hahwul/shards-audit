@@ -81,7 +81,7 @@ module Shards::Audit
       # Check if all sources failed
       if result.errors.size >= Scanner::SOURCE_COUNT && result.vulnerabilities.empty?
         stderr.puts "Error: All vulnerability sources failed."
-        result.errors.each { |e| stderr.puts "  - #{e}" }
+        result.errors.each { |e| stderr.puts "  - #{TableFormatter.plain(e)}" }
         stderr.puts
         stderr.puts "Suggestions:"
         stderr.puts "  - Check your network connection"
@@ -96,7 +96,7 @@ module Shards::Audit
       code = exit_code_for(config, result)
       if code == EXIT_ERROR
         stderr.puts "Error: the audit was incomplete, so no result can be reported."
-        result.errors.each { |e| stderr.puts "  - #{e}" }
+        result.errors.each { |e| stderr.puts "  - #{TableFormatter.plain(e)}" }
         stderr.puts "Use --exit-zero to ignore this."
       end
       code

@@ -17,6 +17,22 @@
 
 ### Fixed
 
+- **One bad OSV reply was cached for the whole TTL.** The reply was written
+  to the cache before it was parsed, so a captive-portal page or truncated
+  body failed every run for 24 hours. Replies are now cached only after they
+  parse, and an unreadable cache entry (OSV or GitHub) is refetched. A reply
+  without an `id` (`{}`, a proxy's error object) used to drop the reported
+  advisory silently; it now counts as a failed lookup. The server-supplied id
+  is percent-encoded into the lookup path.
+- **Advisory text could drive the terminal.** The table printed summaries,
+  ids and URLs raw, so an ESC sequence in an advisory could retitle the
+  terminal, hide lines or plant links, a bidi override could make the printed
+  fix version differ from the real one, and a newline broke out of the box.
+  Control and bidi characters are now dropped, and line breaks and tabs become
+  spaces. The same applies to the source errors listed on stderr.
+- **An invalid UTF-8 byte in an OSV alias crashed `-f yaml`.** Every other
+  advisory string was already scrubbed; aliases were not, and the YAML
+  emitter killed the process with SIGTRAP (not exit 2).
 - **GitHub advisory entries for other packages were applied to the shard.**
   Repository advisory package names are free-form (`kemal`,
   `kemalcr/kemal`, `crystal`). An entry now applies only when it names no
