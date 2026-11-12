@@ -401,10 +401,23 @@ describe "fix version for the installed window" do
     vuln.fixed_version_for("1.0.0").should eq("1.2.5")
   end
 
-  it "keeps the advisory's own spelling of the same bound" do
+  it "keeps the advisory's own spelling of each window's fix" do
     vuln = OsvProbe.new.parse(%({"id":"OSV-1","affected":[{"ranges":[{"type":"ECOSYSTEM",
       "events":[{"introduced":"0"},{"fixed":"v1.2.5"},{"introduced":"1.3.0"},{"fixed":"v1.3.2"}]}]}]})).not_nil!
     vuln.fixed_version_for("1.0.0").should eq("v1.2.5")
+    vuln.fixed_version_for("1.3.1").should eq("v1.3.2")
+  end
+
+  it "does not offer an older window's fix for an unfixed window" do
+    vuln = OsvProbe.new.parse(%({"id":"OSV-1","affected":[{"ranges":[{"type":"SEMVER",
+      "events":[{"introduced":"0"},{"fixed":"1.2.5"},{"introduced":"1.3.0"}]}]}]})).not_nil!
+    vuln.fixed_version_for("1.3.1").should be_nil
+  end
+
+  it "uses an inclusive window's own patched version" do
+    vuln = GithubProbe.new.parse(%([{"ghsa_id":"GHSA-x","vulnerabilities":[
+      {"vulnerable_version_range":"< 1.2.5","first_patched_version":"1.2.5"},
+      {"vulnerable_version_range":">= 1.3.0, <= 1.3.1","first_patched_version":"1.3.2"}]}])).first
     vuln.fixed_version_for("1.3.1").should eq("1.3.2")
   end
 
@@ -420,5 +433,14 @@ describe "fix version for the installed window" do
     result = Shards::Audit::AuditResult.new
     Shards::Audit::VulnerabilityFilter.new(Shards::Audit::Config.new, {"router" => dep}).apply([vuln], result)
     result.vulnerabilities.first.fixed_version.should eq("1.3.2")
+  end
+end
+
+describe "GitHub range with an unreadable constraint" do
+  # Skipping it folded the next window's upper bound into the previous
+  # window, so [1.5, 1.6) vanished and 1.5.2 read as unaffected.
+  it "is treated as unknown rather than reshaped" do
+    ranges = Shards::Audit::SemverRangeParser.parse_github_range(">= 1.0.0, < 1.1.0, >= 1.5.0.1, < 1.6.0")
+    Shards::Audit::Vulnerability.new(id: "GHSA-x", affected_ranges: ranges).affected?("1.5.2").should be_true
   end
 end

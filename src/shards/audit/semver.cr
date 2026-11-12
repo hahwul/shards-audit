@@ -34,22 +34,20 @@ module Shards::Audit
         # text such as GitHub's `vulnerable_version_range` "1.0.0 - 1.2.0"
         # otherwise parsed as 1.0.0 with prerelease " 1.2.0", an exact bound
         # no real version equals, so every version was judged unaffected.
-        return unless pre.empty? || pre.matches?(PRERELEASE_PATTERN)
+        return unless pre.matches?(PRERELEASE_PATTERN)
       end
 
       parts = s.split('.')
       return if parts.size > 3
       # `to_i32?` tolerates surrounding whitespace and a sign ("1. 2.3",
       # "+1"); a version component is plain digits.
-      return unless parts.all?(&.matches?(/\A[0-9]+\z/))
+      return unless parts.all?(&.matches?(NUMERIC_PATTERN))
+      nums = parts.map { |part| part.to_i32? || return }
 
-      major = parts[0].to_i32? || return
-      minor = parts[1]?.try(&.to_i32?) || (parts.size >= 2 ? return : 0)
-      patch = parts[2]?.try(&.to_i32?) || (parts.size >= 3 ? return : 0)
-
-      new(major, minor, patch, pre.presence)
+      new(nums[0], nums[1]? || 0, nums[2]? || 0, pre)
     end
 
+    NUMERIC_PATTERN    = /\A[0-9]+\z/
     PRERELEASE_PATTERN = /\A[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*\z/
 
     def <=>(other : Semver) : Int32
@@ -93,8 +91,8 @@ module Shards::Audit
         b = ids2[i]
         # Digit-only identifiers are numeric. `to_i64?` also read "-1" as a
         # number (it is alphanumeric) and gave up on one past Int64.
-        a_num = a.matches?(/\A[0-9]+\z/)
-        b_num = b.matches?(/\A[0-9]+\z/)
+        a_num = a.matches?(NUMERIC_PATTERN)
+        b_num = b.matches?(NUMERIC_PATTERN)
 
         cmp = if a_num && b_num
                 a = a.lstrip('0')
@@ -126,8 +124,12 @@ module Shards::Audit
     getter fixed : Semver?
     getter introduced_exclusive : Bool
     getter fixed_inclusive : Bool
+    # The advisory's own fix for this window, as written (OSV `fixed`, GitHub
+    # `first_patched_version`), or nil when it names none.
+    getter fix : String?
 
-    def initialize(@introduced = nil, @fixed = nil, @introduced_exclusive = false, @fixed_inclusive = false)
+    def initialize(@introduced = nil, @fixed = nil, @introduced_exclusive = false, @fixed_inclusive = false,
+                   @fix = nil)
     end
 
     # Human/machine readable rendering of the bounds, e.g. ">=1.0.0 <2.0.0".
@@ -175,26 +177,28 @@ module Shards::Audit
     # a descending listing, or `introduced 1.0, introduced 1.2, fixed 1.5`,
     # into windows that matched every version above the fix.
     def self.parse_osv_events(events : Array(JSON::Any)) : Array(SemverRange)
-      bounds = [] of {String, Semver}
+      bounds = [] of {String, Semver, String}
       events.each do |event|
         next unless event.as_h?
         kind = {"introduced", "fixed", "last_affected"}.find { |k| event[k]?.try(&.as_s?) } || next
-        version = Semver.parse(event[kind].as_s)
+        raw = event[kind].as_s
+        version = Semver.parse(raw)
         # A bound we cannot place cannot be sorted; assume every version is
         # affected rather than guess where it falls.
         return [SemverRange.new] unless version
-        bounds << {kind, version}
+        bounds << {kind, version, raw}
       end
 
       ranges = [] of SemverRange
       introduced : Semver? = nil
       # At a shared version the closing event goes first, so an `introduced`
       # there reopens the window instead of being swallowed by it.
-      bounds.sort_by! { |kind, version| {version, kind == "introduced" ? 1 : 0} }.each do |kind, version|
+      bounds.sort_by! { |kind, version, _| {version, kind == "introduced" ? 1 : 0} }.each do |kind, version, raw|
         if kind == "introduced"
           introduced ||= version
         elsif intro = introduced
-          ranges << SemverRange.new(introduced: intro, fixed: version, fixed_inclusive: kind == "last_affected")
+          ranges << SemverRange.new(introduced: intro, fixed: version, fixed_inclusive: kind == "last_affected",
+            fix: kind == "fixed" ? raw : nil)
           introduced = nil
         end
       end
@@ -218,7 +222,9 @@ module Shards::Audit
     # judged unaffected. That is a false negative, the failure mode this tool
     # exists to prevent. A lower bound that arrives when a window is already
     # open now closes that window and starts the next.
-    def self.parse_github_range(range_str : String) : Array(SemverRange)
+    #
+    # `fix` is the entry's patched version, recorded on every window.
+    def self.parse_github_range(range_str : String, fix : String? = nil) : Array(SemverRange)
       return [] of SemverRange if range_str.blank?
 
       ranges = [] of SemverRange
@@ -238,8 +244,10 @@ module Shards::Audit
           op, version_str = "=", constraint
         end
 
-        version = Semver.parse(version_str)
-        next unless version
+        # Skipping a constraint we cannot read reshapes the rest: in
+        # ">= 1.0.0, < 1.1.0, >= 1.5.0.1, < 1.6.0" the `< 1.6.0` folded into
+        # the first window and [1.5, 1.6) vanished. Unknown means affected.
+        version = Semver.parse(version_str) || return [] of SemverRange
 
         # Constraints inside one window are ANDed, so a repeated bound must
         # be intersected (keep the tighter one) rather than overwritten. But
@@ -249,7 +257,7 @@ module Shards::Audit
         lower = op.in?(">=", ">", "=", "==")
         if lower && fixed
           ranges << SemverRange.new(introduced: introduced, fixed: fixed,
-            introduced_exclusive: introduced_exclusive, fixed_inclusive: fixed_inclusive)
+            introduced_exclusive: introduced_exclusive, fixed_inclusive: fixed_inclusive, fix: fix)
           introduced = nil
           fixed = nil
           introduced_exclusive = false
@@ -279,7 +287,7 @@ module Shards::Audit
 
       if introduced || fixed
         ranges << SemverRange.new(introduced: introduced, fixed: fixed,
-          introduced_exclusive: introduced_exclusive, fixed_inclusive: fixed_inclusive)
+          introduced_exclusive: introduced_exclusive, fixed_inclusive: fixed_inclusive, fix: fix)
       end
 
       ranges

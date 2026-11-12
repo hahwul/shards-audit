@@ -385,7 +385,7 @@ describe "Shards::Audit::Semver strict parsing" do
   # "1.0.0 - 1.2.0" parsed as 1.0.0 with prerelease " 1.2.0" — an exact bound
   # no real version equals, which filtered the advisory out for everyone.
   it "rejects text that is not a version" do
-    {"1.0.0 - 1.2.0", "1. 2.3", "1.0.0-rc 1", "1.0.0-rc..1", "1.2.3-α", "1.+2.3"}.each do |s|
+    {"1.0.0 - 1.2.0", "1.0.0-", "1. 2.3", "1.0.0-rc 1", "1.0.0-rc..1", "1.2.3-α", "1.+2.3"}.each do |s|
       Shards::Audit::Semver.parse(s).should be_nil
     end
   end

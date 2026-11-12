@@ -88,8 +88,9 @@ module Shards::Audit
       # falls back to "assume affected", as OSV does for GIT-only entries.
       unfilterable = false
       vulns.each do |vuln|
-        fixed_version ||= extract_first_patched_version(vuln)
-        ranges = SemverRangeParser.parse_github_range(dig_s(vuln, "vulnerable_version_range") || "")
+        patched = extract_first_patched_version(vuln)
+        fixed_version ||= patched
+        ranges = SemverRangeParser.parse_github_range(dig_s(vuln, "vulnerable_version_range") || "", patched)
         unfilterable ||= ranges.empty?
         affected_ranges.concat(ranges)
       end
