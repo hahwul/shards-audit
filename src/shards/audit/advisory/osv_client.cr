@@ -150,19 +150,26 @@ module Shards::Audit
 
       if cache = @cache
         if cached = cache.get(cache_key)
-          log("Cache hit for #{vuln_id}")
-          return parse_vulnerability(cached)
+          begin
+            vuln = parse_vulnerability(cached)
+            log("Cache hit for #{vuln_id}")
+            return vuln
+          rescue JSON::ParseException | TypeCastError
+            # An interrupted write or an older version's entry. A miss, not
+            # a failure pinned for the whole TTL.
+            log("Discarding unreadable cache entry for #{vuln_id}")
+          end
         end
       end
 
       log("Fetching OSV vulnerability: #{vuln_id}")
       response = make_request("GET", "/v1/vulns/#{vuln_id}")
 
-      if cache = @cache
-        cache.set(cache_key, response)
-      end
-
-      parse_vulnerability(response)
+      # Parse before caching. Caching first kept a bad 200 (a captive portal
+      # page, a truncated body) on disk and failed every run until the TTL.
+      vuln = parse_vulnerability(response)
+      @cache.try &.set(cache_key, response)
+      vuln
     rescue ex : IO::Error | Socket::ConnectError | JSON::ParseException | TypeCastError | AdvisoryRequestError
       log("Failed to fetch vulnerability #{vuln_id}: #{ex.message}")
       raise OsvLookupError.new("#{vuln_id}: #{ex.message || ex.class.name}")

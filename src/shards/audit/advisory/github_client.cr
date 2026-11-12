@@ -115,8 +115,14 @@ module Shards::Audit
 
       if cache = @cache
         if cached = cache.get(cache_key)
-          log("Cache hit for #{owner_repo}")
-          return parse_advisories(cached, dep_name, owner_repo)
+          begin
+            vulns = parse_advisories(cached, dep_name, owner_repo)
+            log("Cache hit for #{owner_repo}")
+            return vulns
+          rescue JSON::ParseException
+            # An interrupted write: a miss, not a failure for the whole TTL.
+            log("Discarding unreadable cache entry for #{owner_repo}")
+          end
         end
       end
 

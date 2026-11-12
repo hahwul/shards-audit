@@ -88,7 +88,10 @@ module Shards::Audit
         stderr.puts "  - If behind a proxy, ensure HTTP_PROXY/HTTPS_PROXY are set"
         stderr.puts "  - Set --github-token or GITHUB_TOKEN for GitHub API access"
         stderr.puts "  - Run with --verbose for more details"
-        return EXIT_ERROR
+        # README: "Pass --exit-zero to opt out" of the incomplete-audit exit.
+        # A total failure ignored it, unlike a partial one, and printed no
+        # report, so `-f json --exit-zero` handed the pipeline an empty stdout.
+        return EXIT_ERROR unless config.exit_zero
       end
 
       emit_report(config, result)

@@ -36,6 +36,25 @@ describe "CLI Runner integration" do
       ])
       exit_code.should eq(Shards::Audit::CLI::EXIT_CLEAN)
     end
+
+    # A partial outage under --exit-zero exited 0 with a report, but a total
+    # one exited 2 with an empty stdout, so `-f json --exit-zero` broke the
+    # next pipeline step exactly when the network was down.
+    it "still exits 0 with a parseable report when every source failed" do
+      previous = ENV["HTTPS_PROXY"]?
+      ENV["HTTPS_PROXY"] = "http://127.0.0.1:1" # refuses every connection
+      begin
+        exit_code, stdout, stderr = run_cli_capture([
+          "--path", File.join(FIXTURES_PATH, "shard.lock.basic"), "--no-cache", "--no-config",
+          "--timeout", "1", "-f", "json", "--exit-zero",
+        ])
+        exit_code.should eq(Shards::Audit::CLI::EXIT_CLEAN)
+        JSON.parse(stdout)["errors"].as_a.size.should eq(2)
+        stderr.should contain("All vulnerability sources failed")
+      ensure
+        previous ? (ENV["HTTPS_PROXY"] = previous) : ENV.delete("HTTPS_PROXY")
+      end
+    end
   end
 
   describe "output formats" do

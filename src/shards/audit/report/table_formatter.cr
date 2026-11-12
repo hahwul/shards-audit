@@ -42,18 +42,18 @@ module Shards::Audit
       # Severity with CVSS score: "HIGH (7.5) GHSA-xxxx"
       score_str = vuln.cvss_score ? " (#{vuln.cvss_score})" : ""
       severity_str = colorize("#{vuln.severity.label}#{score_str}", vuln.severity.color_code)
-      io.puts "#{colorize("┌", DIM)} #{severity_str} #{colorize(vuln.id, BOLD)}"
-      io.puts "#{colorize("│", DIM)} #{field("Package")}#{vuln.dependency_name}"
-      io.puts "#{colorize("│", DIM)} #{field("Summary")}#{vuln.summary}" unless vuln.summary.empty?
+      io.puts "#{colorize("┌", DIM)} #{severity_str} #{colorize(plain(vuln.id), BOLD)}"
+      io.puts "#{colorize("│", DIM)} #{field("Package")}#{plain(vuln.dependency_name)}"
+      io.puts "#{colorize("│", DIM)} #{field("Summary")}#{plain(vuln.summary)}" unless vuln.summary.empty?
       if fixed = vuln.fixed_version
-        io.puts "#{colorize("│", DIM)} #{field("Fix")}Upgrade to >= #{fixed}"
+        io.puts "#{colorize("│", DIM)} #{field("Fix")}Upgrade to >= #{plain(fixed)}"
       end
       if url = vuln.url
-        io.puts "#{colorize("│", DIM)} #{field("URL")}#{url}"
+        io.puts "#{colorize("│", DIM)} #{field("URL")}#{plain(url)}"
       end
-      io.puts "#{colorize("│", DIM)} #{field("Source")}#{vuln.source}"
+      io.puts "#{colorize("│", DIM)} #{field("Source")}#{plain(vuln.source)}"
       unless vuln.aliases.empty?
-        io.puts "#{colorize("│", DIM)} #{field("Aliases")}#{vuln.aliases.join(", ")}"
+        io.puts "#{colorize("│", DIM)} #{field("Aliases")}#{plain(vuln.aliases.join(", "))}"
       end
       io.puts "#{colorize("└", DIM)}"
     end
@@ -66,7 +66,23 @@ module Shards::Audit
       return if result.errors.empty?
       io.puts
       result.errors.each do |err|
-        io.puts colorize("Warning: #{err}", "\e[33m") # yellow
+        io.puts colorize("Warning: #{plain(err)}", "\e[33m") # yellow
+      end
+    end
+
+    # Advisory text is written by whoever publishes the advisory, so an ESC
+    # in a summary drove the reader's terminal and a newline broke out of the
+    # box. Line breaks and tabs become spaces; other control characters
+    # (C0, DEL, C1) are dropped.
+    private def plain(text : String) : String
+      String.build do |io|
+        text.each_char do |char|
+          if char.in?('\n', '\r', '\t')
+            io << ' '
+          elsif !char.control?
+            io << char
+          end
+        end
       end
     end
 

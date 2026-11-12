@@ -17,6 +17,21 @@
 
 ### Fixed
 
+- **`--exit-zero` was ignored when every source failed.** A partial outage
+  exited 0 with a report, but a total one exited 2 and printed nothing, so
+  `-f json --exit-zero` gave the next pipeline step an empty stdout. The
+  README already promised `--exit-zero` opts out of the incomplete-audit exit.
+- **One bad OSV reply was cached for the whole TTL.** The reply was written
+  to the cache before it was parsed, so a captive-portal page or truncated
+  body failed every run for 24 hours. Replies are now cached only after they
+  parse, and an unreadable cache entry (OSV or GitHub) is refetched.
+- **Advisory text could drive the terminal.** The table printed summaries,
+  ids and URLs raw, so an ESC sequence in an advisory could retitle the
+  terminal, hide lines or plant links, and a newline broke out of the box.
+  Control characters are now dropped; line breaks and tabs become spaces.
+- **An invalid UTF-8 byte in an OSV alias crashed `-f yaml`.** Every other
+  advisory string was already scrubbed; aliases were not, and the YAML
+  emitter killed the process with SIGTRAP (not exit 2).
 - **GitHub advisory entries for other packages were applied to the shard.**
   Repository advisory package names are free-form (`kemal`,
   `kemalcr/kemal`, `crystal`). An entry now applies only when it names no
